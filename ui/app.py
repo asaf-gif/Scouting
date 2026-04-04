@@ -40,7 +40,8 @@ st.sidebar.divider()
 
 page = st.sidebar.radio(
     "Navigate",
-    ["📚 BM Library", "🔀 Transition Case Studies", "📋 Input Review Queue",
+    ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
+     "⚡ Scalars", "📋 Input Review Queue",
      "📊 Graph Overview", "🧠 Hypothesis Review", "📈 Top Opportunities",
      "🔬 Validation Review", "📝 Editorial Queue", "🔄 Pipeline Monitor"],
 )
@@ -846,6 +847,537 @@ elif page == "🔀 Transition Case Studies":
                  for e in reversed(all_tc)],
                 use_container_width=True, hide_index=True
             )
+    else:
+        st.caption("No edits logged yet.")
+
+
+# ── Page: Transformations ─────────────────────────────────────────────────────
+
+elif page == "📐 Transformations":
+    st.title("📐 Transformations")
+    st.caption("Every recorded business model transition — evidence, causal forces, and hypothesis in one place.")
+
+    # ── Changelog helpers ──────────────────────────────────────────────────────
+    tv_log_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data", "transformation_changelog.jsonl"
+    )
+
+    def tv_append(entry: dict):
+        os.makedirs(os.path.dirname(tv_log_path), exist_ok=True)
+        with open(tv_log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    def tv_load(vid: str) -> list:
+        if not os.path.exists(tv_log_path):
+            return []
+        out = []
+        with open(tv_log_path) as f:
+            for line in f:
+                try:
+                    e = json.loads(line.strip())
+                    if e.get("vector_id") == vid:
+                        out.append(e)
+                except Exception:
+                    pass
+        return out
+
+    # ── Filters ────────────────────────────────────────────────────────────────
+    fcol1, fcol2, fcol3, fcol4 = st.columns([2, 2, 2, 2])
+    with fcol1:
+        tv_search = st.text_input("🔍 Search", placeholder="e.g. Netflix, SaaS, subscription…", key="tv_search")
+    with fcol2:
+        tv_has_evidence = st.checkbox("Evidence only", value=True, key="tv_has_evidence",
+                                      help="Only show transformations that have at least one evidence node")
+    with fcol3:
+        tv_sort = st.selectbox("Sort by", ["Signal strength", "Opportunity score", "Evidence count"], key="tv_sort")
+    with fcol4:
+        tv_from_bms = run_query("MATCH (f:BusinessModel) RETURN f.name AS name ORDER BY f.name")
+        tv_from_opts = ["All"] + [r["name"] for r in tv_from_bms]
+        tv_from = st.selectbox("From BM", tv_from_opts, key="tv_from")
+
+    # ── Query ──────────────────────────────────────────────────────────────────
+    tv_from_filter   = "" if tv_from == "All" else "AND f.name = $from_bm"
+    tv_evidence_filter = "AND evidence_count > 0" if tv_has_evidence else ""
+
+    tv_sort_clause = {
+        "Signal strength":   "ORDER BY v.signal_strength DESC",
+        "Opportunity score": "ORDER BY v.opportunity_score DESC",
+        "Evidence count":    "ORDER BY evidence_count DESC",
+    }[tv_sort]
+
+    transformations = run_query(f"""
+        MATCH (v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
+        MATCH (v)-[:TO_BIM]->(t:BusinessModel)
+        WHERE 1=1 {tv_from_filter}
+        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
+        WITH v, f, t, h,
+             size([(e:Evidence)-[:SUPPORTS]->(v)|e])   AS evidence_count,
+             size([(sc:Scalar)<-[:IMPACTS]-(v)|sc])    AS scalar_count
+        WHERE 1=1 {tv_evidence_filter}
+        RETURN v.vector_id          AS vid,
+               v.signal_strength    AS signal,
+               v.opportunity_score  AS opp,
+               v.example_text       AS example_text,
+               f.name               AS from_bm,
+               f.bim_id             AS from_id,
+               t.name               AS to_bm,
+               t.bim_id             AS to_id,
+               evidence_count,
+               scalar_count,
+               h.hypothesis_id      AS hyp_id,
+               h.title              AS hyp_title,
+               h.conviction_score   AS conviction,
+               h.thesis             AS thesis,
+               h.counter_argument   AS counter,
+               h.disruption_type    AS dtype,
+               h.time_horizon       AS horizon,
+               h.ai_disruption_link AS ai_link
+        {tv_sort_clause}
+    """, from_bm=tv_from)
+
+    if tv_search:
+        q = tv_search.lower()
+        transformations = [t for t in transformations if
+                           q in (t.get("from_bm") or "").lower()
+                           or q in (t.get("to_bm") or "").lower()
+                           or q in (t.get("example_text") or "").lower()
+                           or q in (t.get("hyp_title") or "").lower()]
+
+    st.divider()
+    st.caption(f"{len(transformations)} transformations  ·  "
+               f"{sum(t.get('evidence_count') or 0 for t in transformations)} evidence nodes")
+
+    TV_DIRECTION_OPTIONS = ["increases", "neutral", "decreases"]
+    TV_STRENGTH_OPTIONS  = ["strong", "moderate", "weak"]
+    TV_IMPACT_SCORE_MAP  = {
+        ("increases", "strong"): 2, ("increases", "moderate"): 1,
+        ("neutral", "strong"): 0, ("neutral", "moderate"): 0, ("neutral", "weak"): 0,
+        ("decreases", "moderate"): -1, ("decreases", "strong"): -2,
+    }
+
+    for tr in transformations:
+        vid      = tr.get("vid") or ""
+        signal   = tr.get("signal") or 0
+        opp      = tr.get("opp") or 0
+        ev_count = tr.get("evidence_count") or 0
+        sc_count = tr.get("scalar_count") or 0
+        has_hyp  = bool(tr.get("hyp_id"))
+
+        label = f"{tr['from_bm']} → {tr['to_bm']}  ·  signal {signal:.3f}  ·  {ev_count} evidence"
+        with st.expander(label, expanded=False):
+            st.markdown(f"<u>**{tr['from_bm']} → {tr['to_bm']}**</u>", unsafe_allow_html=True)
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Signal", f"{signal:.3f}")
+            m2.metric("Opp score", f"{opp:.3f}" if opp else "—")
+            m3.metric("Evidence", ev_count)
+            m4.metric("Scalars", sc_count)
+
+            ex = tr.get("example_text") or ""
+            if ex:
+                st.markdown("#### 📝 Description")
+                st.markdown(ex)
+                st.divider()
+
+            # Evidence
+            if ev_count > 0:
+                st.markdown("#### 🏢 Evidence")
+                ev_rows = run_query("""
+                    MATCH (e:Evidence)-[:SUPPORTS]->(v:TransformationVector {vector_id: $vid})
+                    RETURN e.companies_mentioned AS companies,
+                           e.transition_summary  AS summary,
+                           e.evidence_quote      AS quote,
+                           e.source_url          AS url,
+                           e.confidence          AS conf
+                    ORDER BY e.confidence DESC
+                """, vid=vid)
+                for ev in ev_rows:
+                    cos = ev.get("companies") or []
+                    if isinstance(cos, str):
+                        try: cos = json.loads(cos)
+                        except Exception: cos = [cos]
+                    co_str  = ", ".join(cos) if cos else "Unknown"
+                    summary = ev.get("summary") or ""
+                    ec1, ec2 = st.columns([5, 1])
+                    with ec1:
+                        st.markdown(f"**🏢 {co_str}** — {summary[:180] if summary else '_No summary_'}")
+                        quote = ev.get("quote") or ""
+                        if quote and quote.strip() != summary.strip():
+                            st.markdown(f"> \"{quote[:250]}\"")
+                        src = ev.get("url") or ""
+                        if src:
+                            st.caption(f"🔗 [{src[:70]}]({src})")
+                    with ec2:
+                        st.caption(f"conf: {ev.get('conf') or 0:.2f}")
+                st.divider()
+
+            # Scalars
+            scalars = run_query("""
+                MATCH (v:TransformationVector {vector_id: $vid})-[r:IMPACTS]->(sc:Scalar)
+                RETURN sc.scalar_id AS scalar_id, sc.name AS name,
+                       r.direction AS direction, r.impact_strength AS strength,
+                       r.impact_score AS score, r.rationale AS rationale
+                ORDER BY r.impact_score DESC
+            """, vid=vid)
+
+            if scalars:
+                st.markdown("#### ⚙️ Causal Forces")
+                for sc in scalars:
+                    score = sc.get("score") or 0
+                    arrow = "⬆️" if sc.get("direction") == "increases" else "⬇️"
+                    sc1, sc2 = st.columns([3, 1])
+                    with sc1:
+                        st.markdown(f"{arrow} **{sc['name'][:70]}**")
+                        if sc.get("rationale"):
+                            st.caption(sc["rationale"][:280])
+                    with sc2:
+                        color = "green" if score > 0 else ("red" if score < 0 else "gray")
+                        st.markdown(f":{color}[**{sc.get('strength','—')}** ({'+' if score > 0 else ''}{score})]")
+
+                tv_sc_key = f"tv_sc_edit_{vid}"
+                if tv_sc_key not in st.session_state:
+                    st.session_state[tv_sc_key] = False
+                if st.button("✏️ Edit scalars", key=f"tv_btn_sc_{vid}"):
+                    st.session_state[tv_sc_key] = not st.session_state[tv_sc_key]
+                if st.session_state[tv_sc_key]:
+                    with st.form(key=f"tv_sc_form_{vid}"):
+                        sc_edits = []
+                        for sc in scalars:
+                            st.markdown(f"**{sc['name'][:80]}**")
+                            dc1, dc2 = st.columns(2)
+                            cur_dir = sc.get("direction") or "increases"
+                            cur_str = sc.get("strength") or "moderate"
+                            nd = dc1.selectbox("Direction", TV_DIRECTION_OPTIONS,
+                                index=TV_DIRECTION_OPTIONS.index(cur_dir) if cur_dir in TV_DIRECTION_OPTIONS else 0,
+                                key=f"tv_sc_dir_{vid}_{sc['scalar_id']}")
+                            ns = dc2.selectbox("Strength", TV_STRENGTH_OPTIONS,
+                                index=TV_STRENGTH_OPTIONS.index(cur_str) if cur_str in TV_STRENGTH_OPTIONS else 1,
+                                key=f"tv_sc_str_{vid}_{sc['scalar_id']}")
+                            nr = st.text_area("Rationale", value=sc.get("rationale") or "",
+                                height=60, key=f"tv_sc_rat_{vid}_{sc['scalar_id']}")
+                            sc_edits.append({"scalar_id": sc["scalar_id"],
+                                             "new_dir": nd, "new_str": ns, "new_rat": nr})
+                            st.divider()
+                        sc_reason = st.text_area("🧠 Reason", height=60,
+                            placeholder="Why are you correcting these scalars?")
+                        if st.form_submit_button("💾 Save scalar edits", type="primary"):
+                            if not sc_reason.strip():
+                                st.error("Please enter a reason.")
+                            else:
+                                now = datetime.now(timezone.utc).isoformat()
+                                for ed in sc_edits:
+                                    new_score = TV_IMPACT_SCORE_MAP.get((ed["new_dir"], ed["new_str"]), 0)
+                                    run_query("""
+                                        MATCH (v:TransformationVector {vector_id: $vid})
+                                              -[r:IMPACTS]->(sc:Scalar {scalar_id: $sid})
+                                        SET r.direction=$dir, r.impact_strength=$strength,
+                                            r.impact_score=$score, r.rationale=$rationale,
+                                            r.edited_at=$now, r.edited_by='editorial'
+                                    """, vid=vid, sid=ed["scalar_id"], dir=ed["new_dir"],
+                                        strength=ed["new_str"], score=new_score,
+                                        rationale=ed["new_rat"], now=now)
+                                tv_append({"vector_id": vid, "from_bm": tr["from_bm"],
+                                           "to_bm": tr["to_bm"], "timestamp": now,
+                                           "change_type": "scalar_edit",
+                                           "scalar_edits": [{"scalar_id": e["scalar_id"],
+                                               "direction": e["new_dir"], "strength": e["new_str"]}
+                                               for e in sc_edits],
+                                           "reason": sc_reason.strip()})
+                                st.success(f"✅ {len(sc_edits)} scalar(s) updated.")
+                                st.session_state[tv_sc_key] = False
+                                st.rerun()
+                st.divider()
+
+            # Hypothesis
+            if has_hyp:
+                st.markdown("#### 💡 Disruption Hypothesis")
+                hc1, hc2, hc3 = st.columns(3)
+                hc1.metric("Conviction", f"{tr.get('conviction') or 0:.2f}")
+                hc2.metric("Type", tr.get("dtype") or "—")
+                hc3.metric("Horizon", tr.get("horizon") or "—")
+                if tr.get("hyp_title"):
+                    st.markdown(f"**{tr['hyp_title']}**")
+                if tr.get("thesis"):
+                    st.markdown(tr["thesis"])
+                if tr.get("counter"):
+                    st.markdown(f"**⚠️ Counter:** _{tr['counter']}_")
+                if tr.get("ai_link"):
+                    st.markdown(f"**🤖 AI link:** {tr['ai_link']}")
+
+                tv_hyp_key = f"tv_hyp_edit_{vid}"
+                if tv_hyp_key not in st.session_state:
+                    st.session_state[tv_hyp_key] = False
+                if st.button("✏️ Edit hypothesis", key=f"tv_btn_hyp_{vid}"):
+                    st.session_state[tv_hyp_key] = not st.session_state[tv_hyp_key]
+                if st.session_state[tv_hyp_key]:
+                    with st.form(key=f"tv_hyp_form_{vid}"):
+                        new_title   = st.text_input("Title", value=tr.get("hyp_title") or "")
+                        new_thesis  = st.text_area("Thesis", value=tr.get("thesis") or "", height=100)
+                        new_counter = st.text_area("Counter-argument", value=tr.get("counter") or "", height=80)
+                        new_ai_link = st.text_input("AI disruption link", value=tr.get("ai_link") or "")
+                        hfc1, hfc2 = st.columns(2)
+                        dtype_opts   = ["Substitution", "Compression", "Disintermediation",
+                                        "Platform shift", "Bundling", "Unbundling", "Other"]
+                        horizon_opts = ["< 2 years", "2–5 years", "5–10 years", "> 10 years"]
+                        cur_dtype   = tr.get("dtype") or "Other"
+                        cur_horizon = tr.get("horizon") or "2–5 years"
+                        new_dtype   = hfc1.selectbox("Disruption type", dtype_opts,
+                            index=dtype_opts.index(cur_dtype) if cur_dtype in dtype_opts else len(dtype_opts)-1,
+                            key=f"tv_dtype_{vid}")
+                        new_horizon = hfc2.selectbox("Time horizon", horizon_opts,
+                            index=horizon_opts.index(cur_horizon) if cur_horizon in horizon_opts else 1,
+                            key=f"tv_horizon_{vid}")
+                        hyp_reason = st.text_area("🧠 Reason for change", height=60,
+                            placeholder="e.g. 'Updated thesis to reflect 2025 AI cost curves.'")
+                        if st.form_submit_button("💾 Save hypothesis edits", type="primary"):
+                            if not hyp_reason.strip():
+                                st.error("Please enter a reason.")
+                            else:
+                                now = datetime.now(timezone.utc).isoformat()
+                                run_query("""
+                                    MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
+                                    SET h.title=$title, h.thesis=$thesis,
+                                        h.counter_argument=$counter,
+                                        h.ai_disruption_link=$ai_link,
+                                        h.disruption_type=$dtype,
+                                        h.time_horizon=$horizon,
+                                        h.last_edited_at=$now,
+                                        h.last_edited_by='editorial'
+                                """, hid=tr["hyp_id"], title=new_title,
+                                    thesis=new_thesis, counter=new_counter,
+                                    ai_link=new_ai_link, dtype=new_dtype,
+                                    horizon=new_horizon, now=now)
+                                tv_append({"vector_id": vid, "from_bm": tr["from_bm"],
+                                           "to_bm": tr["to_bm"], "timestamp": now,
+                                           "change_type": "hypothesis_edit",
+                                           "hypothesis_id": tr["hyp_id"],
+                                           "old_title": tr.get("hyp_title"),
+                                           "new_title": new_title,
+                                           "reason": hyp_reason.strip()})
+                                st.success("✅ Hypothesis updated.")
+                                st.session_state[tv_hyp_key] = False
+                                st.rerun()
+
+            # Edit history
+            tv_history = tv_load(vid)
+            if tv_history:
+                st.divider()
+                st.markdown(f"**📋 Edit history ({len(tv_history)})**")
+                for h in reversed(tv_history[-5:]):
+                    st.caption(f"_{h.get('timestamp','')[:16]}  [{h.get('change_type','')}]  {h.get('reason','')[:100]}_")
+
+    st.divider()
+    st.subheader("📋 Transformation Edit Log")
+    if os.path.exists(tv_log_path):
+        with open(tv_log_path) as f:
+            all_tv = [json.loads(l) for l in f if l.strip()]
+        if all_tv:
+            st.dataframe([{
+                "Time":        e.get("timestamp","")[:16],
+                "Vector":      f"{e.get('from_bm','')} → {e.get('to_bm','')}",
+                "Change type": e.get("change_type",""),
+                "Reason":      e.get("reason","")[:80],
+            } for e in reversed(all_tv)], use_container_width=True, hide_index=True)
+    else:
+        st.caption("No edits logged yet.")
+
+
+# ── Page: Scalars ──────────────────────────────────────────────────────────────
+
+elif page == "⚡ Scalars":
+    st.title("⚡ Scalars")
+    st.caption("The structural conditions that drive business model transitions.")
+
+    sc_log_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data", "scalar_changelog.jsonl"
+    )
+
+    def sc_append(entry: dict):
+        os.makedirs(os.path.dirname(sc_log_path), exist_ok=True)
+        with open(sc_log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    def sc_load_history(scalar_id: str) -> list:
+        if not os.path.exists(sc_log_path):
+            return []
+        out = []
+        with open(sc_log_path) as f:
+            for line in f:
+                try:
+                    e = json.loads(line.strip())
+                    if e.get("scalar_id") == scalar_id:
+                        out.append(e)
+                except Exception:
+                    pass
+        return out
+
+    # Filters
+    sfc1, sfc2, sfc3 = st.columns([3, 2, 2])
+    with sfc1:
+        sc_search = st.text_input("🔍 Search scalars", placeholder="e.g. marginal cost, network…", key="sc_search")
+    with sfc2:
+        sc_groups = run_query("MATCH (sc:Scalar) RETURN DISTINCT sc.group AS g ORDER BY g")
+        group_opts = ["All groups"] + [r["g"] for r in sc_groups if r.get("g")]
+        sc_group = st.selectbox("Group", group_opts, key="sc_group")
+    with sfc3:
+        sc_sort = st.selectbox("Sort by", ["Name", "Trend strength", "# transitions"], key="sc_sort")
+
+    sc_group_filter = "" if sc_group == "All groups" else "AND sc.group = $sc_group"
+    sc_sort_clause  = {
+        "Name":           "ORDER BY sc.name",
+        "Trend strength": "ORDER BY sc.trend_strength DESC",
+        "# transitions":  "ORDER BY vector_count DESC",
+    }[sc_sort]
+
+    all_scalars = run_query(f"""
+        MATCH (sc:Scalar)
+        WHERE 1=1 {sc_group_filter}
+        WITH sc,
+             size([(v:TransformationVector)-[:IMPACTS]->(sc)|v]) AS vector_count
+        RETURN sc.scalar_id       AS scalar_id,
+               sc.name            AS name,
+               sc.description     AS description,
+               sc.rationale       AS rationale,
+               sc.group           AS group,
+               sc.code            AS code,
+               sc.trend_direction AS trend_direction,
+               sc.trend_strength  AS trend_strength,
+               vector_count
+        {sc_sort_clause}
+    """, sc_group=sc_group)
+
+    if sc_search:
+        q = sc_search.lower()
+        all_scalars = [s for s in all_scalars if
+                       q in (s.get("name") or "").lower()
+                       or q in (s.get("description") or "").lower()
+                       or q in (s.get("rationale") or "").lower()]
+
+    st.divider()
+    st.caption(f"{len(all_scalars)} scalars")
+
+    for scalar in all_scalars:
+        sid         = scalar.get("scalar_id") or ""
+        sc_name     = (scalar.get("name") or sid).replace("\n", " ")
+        sc_desc     = scalar.get("description") or ""
+        sc_rat      = scalar.get("rationale") or ""
+        vec_count   = scalar.get("vector_count") or 0
+        trend_dir   = scalar.get("trend_direction") or "—"
+        trend_str   = scalar.get("trend_strength") or 0
+        trend_arrow = "⬆️" if trend_dir == "increases" else ("⬇️" if trend_dir == "decreases" else "➡️")
+
+        card_label = f"{scalar.get('code','?')} · {sc_name[:80]}  ·  {vec_count} transitions"
+        with st.expander(card_label, expanded=False):
+            st.markdown(f"<u>**{sc_name}**</u>", unsafe_allow_html=True)
+
+            sm1, sm2, sm3 = st.columns(3)
+            sm1.metric("Transitions", vec_count)
+            sm2.metric("Trend", f"{trend_arrow} {trend_dir}")
+            sm3.metric("Trend strength", f"{trend_str:.2f}" if trend_str else "—")
+
+            if sc_desc:
+                st.markdown("**Description**")
+                st.markdown(sc_desc.replace("\n", "  \n"))
+            if sc_rat:
+                st.markdown("**Why it matters**")
+                st.caption(sc_rat)
+
+            st.divider()
+
+            # Linked transformations
+            linked = run_query("""
+                MATCH (v:TransformationVector)-[r:IMPACTS]->(sc:Scalar {scalar_id: $sid})
+                MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
+                MATCH (v)-[:TO_BIM]->(t:BusinessModel)
+                RETURN f.name AS from_bm, t.name AS to_bm,
+                       v.signal_strength AS signal,
+                       r.direction AS direction, r.impact_strength AS strength,
+                       r.impact_score AS score, r.rationale AS rationale
+                ORDER BY r.impact_score DESC
+            """, sid=sid)
+
+            if linked:
+                st.markdown(f"#### 🔗 Transformations this scalar influences ({len(linked)})")
+
+                def render_linked(rows, header):
+                    if not rows:
+                        return
+                    st.markdown(f"**{header}**")
+                    for lv in rows:
+                        score = lv.get("score") or 0
+                        arrow = "⬆️" if lv.get("direction") == "increases" else "⬇️"
+                        color = "green" if score > 0 else ("red" if score < 0 else "gray")
+                        lc1, lc2 = st.columns([4, 1])
+                        with lc1:
+                            st.markdown(f"{arrow} **{lv['from_bm']} → {lv['to_bm']}**")
+                            if lv.get("rationale"):
+                                st.caption(lv["rationale"][:250])
+                        with lc2:
+                            st.markdown(f":{color}[**{lv.get('strength','—')}** ({'+' if score > 0 else ''}{score})]")
+                            st.caption(f"sig: {lv.get('signal') or 0:.3f}")
+
+                pos = [l for l in linked if (l.get("score") or 0) > 0]
+                neg = [l for l in linked if (l.get("score") or 0) < 0]
+                neu = [l for l in linked if (l.get("score") or 0) == 0]
+                render_linked(pos, "✅ Positive — increases probability of this transition")
+                render_linked(neg, "❌ Negative — decreases probability of this transition")
+                render_linked(neu, "➡️ Neutral")
+
+            st.divider()
+
+            # Edit scalar definition
+            sc_def_key = f"sc_def_edit_{sid}"
+            if sc_def_key not in st.session_state:
+                st.session_state[sc_def_key] = False
+            if st.button("✏️ Edit scalar definition", key=f"btn_sc_def_{sid}"):
+                st.session_state[sc_def_key] = not st.session_state[sc_def_key]
+
+            if st.session_state[sc_def_key]:
+                with st.form(key=f"sc_def_form_{sid}"):
+                    new_name = st.text_area("Name", value=sc_name, height=70)
+                    new_desc = st.text_area("Description", value=sc_desc, height=100)
+                    new_rat  = st.text_area("Why it matters (rationale)", value=sc_rat, height=80)
+                    def_reason = st.text_area("🧠 Reason for change", height=60,
+                        placeholder="e.g. 'Clarified that marginal cost refers to digital distribution only.'")
+                    if st.form_submit_button("💾 Save", type="primary"):
+                        if not def_reason.strip():
+                            st.error("Please enter a reason.")
+                        else:
+                            now = datetime.now(timezone.utc).isoformat()
+                            run_query("""
+                                MATCH (sc:Scalar {scalar_id: $sid})
+                                SET sc.name=$name, sc.description=$desc,
+                                    sc.rationale=$rat, sc.last_edited_at=$now,
+                                    sc.last_edited_by='editorial'
+                            """, sid=sid, name=new_name, desc=new_desc, rat=new_rat, now=now)
+                            sc_append({"scalar_id": sid, "timestamp": now,
+                                       "change_type": "definition_edit",
+                                       "old_name": sc_name, "new_name": new_name,
+                                       "reason": def_reason.strip()})
+                            st.success("✅ Scalar updated.")
+                            st.session_state[sc_def_key] = False
+                            st.rerun()
+
+            sc_hist = sc_load_history(sid)
+            if sc_hist:
+                st.markdown(f"**📋 Edit history ({len(sc_hist)})**")
+                for h in reversed(sc_hist[-5:]):
+                    st.caption(f"_{h.get('timestamp','')[:16]}  {h.get('reason','')[:100]}_")
+
+    st.divider()
+    st.subheader("📋 Scalar Edit Log")
+    if os.path.exists(sc_log_path):
+        with open(sc_log_path) as f:
+            all_sc_log = [json.loads(l) for l in f if l.strip()]
+        if all_sc_log:
+            st.dataframe([{
+                "Time":    e.get("timestamp","")[:16],
+                "Scalar":  e.get("scalar_id",""),
+                "Change":  e.get("change_type",""),
+                "Reason":  e.get("reason","")[:80],
+            } for e in reversed(all_sc_log)], use_container_width=True, hide_index=True)
     else:
         st.caption("No edits logged yet.")
 
