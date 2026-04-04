@@ -41,7 +41,7 @@ st.sidebar.divider()
 page = st.sidebar.radio(
     "Navigate",
     ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
-     "⚡ Scalars", "📋 Input Review Queue",
+     "⚡ Scalars", "🔬 Technologies", "📋 Input Review Queue",
      "📊 Graph Overview", "🧠 Hypothesis Review", "📈 Top Opportunities",
      "🔬 Validation Review", "📝 Editorial Queue", "🔄 Pipeline Monitor"],
 )
@@ -1425,6 +1425,515 @@ elif page == "⚡ Scalars":
             } for e in reversed(all_sc_log)], use_container_width=True, hide_index=True)
     else:
         st.caption("No edits logged yet.")
+
+
+# ── Page: Technologies ────────────────────────────────────────────────────────
+
+elif page == "🔬 Technologies":
+    st.title("🔬 Technology Transformations")
+    st.caption("Technologies that are enabling or forcing business model transitions — what they are, what they disrupt, and how mature they are.")
+
+    import anthropic as _anthropic
+
+    tech_log_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "data", "technology_changelog.jsonl"
+    )
+
+    def tech_append(entry: dict):
+        os.makedirs(os.path.dirname(tech_log_path), exist_ok=True)
+        with open(tech_log_path, "a") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+
+    def tech_load_history(tech_id: str) -> list:
+        if not os.path.exists(tech_log_path):
+            return []
+        out = []
+        with open(tech_log_path) as f:
+            for line in f:
+                try:
+                    e = json.loads(line.strip())
+                    if e.get("tech_id") == tech_id:
+                        out.append(e)
+                except Exception:
+                    pass
+        return out
+
+    def next_tech_id() -> str:
+        rows = run_query("MATCH (t:Technology) RETURN t.tech_id AS id ORDER BY id DESC LIMIT 1")
+        if not rows or not rows[0].get("id"):
+            return "TECH_001"
+        last = rows[0]["id"]
+        try:
+            n = int(last.split("_")[1]) + 1
+            return f"TECH_{n:03d}"
+        except Exception:
+            return f"TECH_{len(rows)+1:03d}"
+
+    # ── Filters ────────────────────────────────────────────────────────────────
+    tc1, tc2, tc3 = st.columns([3, 2, 2])
+    with tc1:
+        tech_search = st.text_input("🔍 Search technologies", placeholder="e.g. RAG, graph, LLM…", key="tech_search")
+    with tc2:
+        cat_rows = run_query("MATCH (t:Technology) RETURN DISTINCT t.category AS c ORDER BY c")
+        cat_opts = ["All categories"] + [r["c"] for r in cat_rows if r.get("c")]
+        tech_cat = st.selectbox("Category", cat_opts, key="tech_cat")
+    with tc3:
+        tech_sort = st.selectbox("Sort by", ["Maturity (high→low)", "Name", "Recently added"], key="tech_sort")
+
+    cat_filter  = "" if tech_cat == "All categories" else "AND t.category = $cat"
+    sort_clause = {
+        "Maturity (high→low)": "ORDER BY t.maturity_level DESC",
+        "Name":                "ORDER BY t.name",
+        "Recently added":      "ORDER BY t.created_at DESC",
+    }[tech_sort]
+
+    techs = run_query(f"""
+        MATCH (t:Technology)
+        WHERE 1=1 {cat_filter}
+        RETURN t.tech_id        AS tech_id,
+               t.name           AS name,
+               t.short_name     AS short_name,
+               t.category       AS category,
+               t.description    AS description,
+               t.disruption_thesis AS disruption_thesis,
+               t.primary_use_cases AS use_cases,
+               t.key_players    AS key_players,
+               t.maturity_level AS maturity,
+               t.maturity_rationale AS maturity_rationale,
+               t.confidence     AS confidence,
+               t.tracking_status AS status,
+               t.created_at     AS created_at
+        {sort_clause}
+    """, cat=tech_cat)
+
+    if tech_search:
+        q = tech_search.lower()
+        techs = [t for t in techs if
+                 q in (t.get("name") or "").lower()
+                 or q in (t.get("description") or "").lower()
+                 or q in (t.get("disruption_thesis") or "").lower()
+                 or q in (t.get("short_name") or "").lower()]
+
+    st.divider()
+    st.caption(f"{len(techs)} technologies tracked")
+
+    # ── Technology cards ───────────────────────────────────────────────────────
+    for tech in techs:
+        tid       = tech.get("tech_id") or ""
+        t_name    = tech.get("name") or tid
+        t_short   = tech.get("short_name") or ""
+        maturity  = tech.get("maturity") or 0
+        t_status  = tech.get("status") or "Active"
+        t_cat     = tech.get("category") or "—"
+        t_desc    = tech.get("description") or ""
+        t_thesis  = tech.get("disruption_thesis") or ""
+        use_cases = tech.get("use_cases") or []
+        if isinstance(use_cases, str):
+            try:    use_cases = json.loads(use_cases)
+            except Exception: use_cases = [use_cases]
+        key_players = tech.get("key_players") or []
+        if isinstance(key_players, str):
+            try:    key_players = json.loads(key_players)
+            except Exception: key_players = [key_players]
+
+        mat_bar  = "█" * int(maturity / 10) + "░" * (10 - int(maturity / 10))
+        mat_color = "green" if maturity >= 70 else ("orange" if maturity >= 40 else "red")
+        card_label = f"{'[' + t_short + '] ' if t_short else ''}{t_name}  ·  {t_cat}  ·  maturity {int(maturity)}%"
+
+        with st.expander(card_label, expanded=False):
+            st.markdown(f"<u>**{t_name}**</u>{'  `' + t_short + '`' if t_short else ''}", unsafe_allow_html=True)
+
+            # Stats row
+            tm1, tm2, tm3 = st.columns(3)
+            tm1.markdown(f"**Maturity** :{mat_color}[{int(maturity)}% {mat_bar}]")
+            tm2.metric("Category", t_cat)
+            tm3.metric("Status", t_status)
+
+            st.divider()
+
+            if t_desc:
+                st.markdown("**What it is**")
+                st.markdown(t_desc)
+
+            if t_thesis:
+                st.markdown("**Disruption thesis**")
+                st.info(t_thesis)
+
+            if use_cases:
+                st.markdown("**Primary use cases**")
+                for uc in use_cases:
+                    st.markdown(f"- {uc}")
+
+            if key_players:
+                st.markdown("**Key players**")
+                st.markdown("  ·  ".join(key_players))
+
+            if tech.get("maturity_rationale"):
+                st.caption(f"_Maturity source: {tech['maturity_rationale'][:200]}_")
+
+            st.divider()
+
+            # ── Linked transformations ─────────────────────────────────────────
+            # Vectors with INFLUENCES rel
+            linked_vecs = run_query("""
+                MATCH (t:Technology {tech_id: $tid})-[r:INFLUENCES]->(v:TransformationVector)
+                MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
+                MATCH (v)-[:TO_BIM]->(to:BusinessModel)
+                RETURN f.name AS from_bm, to.name AS to_bm,
+                       v.vector_id AS vid, v.signal_strength AS signal,
+                       r.influence_type AS itype, r.rationale AS rationale,
+                       r.confidence AS conf
+                ORDER BY signal DESC
+            """, tid=tid)
+
+            # Also surface hypotheses whose ai_disruption_link or thesis mentions this tech
+            name_fragments = [w for w in (t_name + " " + t_short).split() if len(w) > 3]
+            hyp_matches = []
+            if name_fragments:
+                search_pat = "|".join(name_fragments[:4])
+                hyp_matches = run_query(f"""
+                    MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v:TransformationVector)
+                    MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
+                    MATCH (v)-[:TO_BIM]->(to:BusinessModel)
+                    WHERE h.ai_disruption_link IS NOT NULL
+                      AND toLower(h.ai_disruption_link + ' ' + coalesce(h.thesis,'')) =~ $pat
+                    RETURN f.name AS from_bm, to.name AS to_bm,
+                           v.vector_id AS vid, h.title AS hyp_title,
+                           h.conviction_score AS conviction,
+                           h.ai_disruption_link AS ai_link
+                    ORDER BY conviction DESC
+                    LIMIT 10
+                """, pat=f".*({'|'.join(name_fragments[:3]).lower()}).*")
+
+            if linked_vecs or hyp_matches:
+                st.markdown(f"#### 🔗 Transformations this technology influences")
+                if linked_vecs:
+                    for lv in linked_vecs:
+                        lc1, lc2 = st.columns([4, 1])
+                        with lc1:
+                            itype = lv.get("itype") or "enables"
+                            st.markdown(f"**{lv['from_bm']} → {lv['to_bm']}**  _{itype}_")
+                            if lv.get("rationale"):
+                                st.caption(lv["rationale"][:200])
+                        with lc2:
+                            st.caption(f"sig: {lv.get('signal') or 0:.3f}")
+                if hyp_matches:
+                    st.markdown("_From hypothesis AI-link mentions:_")
+                    for hm in hyp_matches:
+                        st.markdown(f"- **{hm['from_bm']} → {hm['to_bm']}** — {hm.get('hyp_title','')[:80]}")
+                        if hm.get("ai_link"):
+                            st.caption(hm["ai_link"][:180])
+            else:
+                st.caption("_No linked transformations yet — link one below._")
+
+            # Link to a vector
+            link_key = f"tech_link_{tid}"
+            if link_key not in st.session_state:
+                st.session_state[link_key] = False
+            if st.button("➕ Link to a transformation", key=f"btn_tech_link_{tid}"):
+                st.session_state[link_key] = not st.session_state[link_key]
+            if st.session_state[link_key]:
+                all_vecs = run_query("""
+                    MATCH (v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
+                    MATCH (v)-[:TO_BIM]->(t:BusinessModel)
+                    RETURN v.vector_id AS vid, f.name + ' → ' + t.name AS label
+                    ORDER BY label
+                """)
+                vec_options = {r["label"]: r["vid"] for r in all_vecs}
+                with st.form(key=f"tech_link_form_{tid}"):
+                    selected_vec_label = st.selectbox("Transformation", list(vec_options.keys()),
+                                                      key=f"tech_link_sel_{tid}")
+                    itype_opts = ["enables", "accelerates", "disrupts", "commoditises", "new entrant threat"]
+                    link_itype = st.selectbox("Influence type", itype_opts, key=f"tech_link_itype_{tid}")
+                    link_rat   = st.text_area("Rationale", height=80,
+                        placeholder="e.g. 'RAG enables near-zero-cost knowledge retrieval, removing the value proposition of traditional KM subscriptions.'")
+                    link_conf  = st.slider("Confidence", 0.0, 1.0, 0.7, 0.05, key=f"tech_link_conf_{tid}")
+                    if st.form_submit_button("💾 Create link", type="primary"):
+                        if not link_rat.strip():
+                            st.error("Please enter a rationale.")
+                        else:
+                            now = datetime.now(timezone.utc).isoformat()
+                            run_query("""
+                                MATCH (t:Technology {tech_id: $tid})
+                                MATCH (v:TransformationVector {vector_id: $vid})
+                                MERGE (t)-[r:INFLUENCES]->(v)
+                                SET r.influence_type=$itype, r.rationale=$rat,
+                                    r.confidence=$conf, r.created_at=$now, r.created_by='editorial'
+                            """, tid=tid, vid=vec_options[selected_vec_label],
+                                itype=link_itype, rat=link_rat.strip(), conf=link_conf, now=now)
+                            tech_append({"tech_id": tid, "timestamp": now,
+                                         "change_type": "link_added",
+                                         "vector_id": vec_options[selected_vec_label],
+                                         "influence_type": link_itype,
+                                         "reason": link_rat.strip()})
+                            st.success("✅ Link created.")
+                            st.session_state[link_key] = False
+                            st.rerun()
+
+            st.divider()
+
+            # ── Edit technology ────────────────────────────────────────────────
+            te_key = f"tech_edit_{tid}"
+            if te_key not in st.session_state:
+                st.session_state[te_key] = False
+            if st.button("✏️ Edit technology", key=f"btn_tech_edit_{tid}"):
+                st.session_state[te_key] = not st.session_state[te_key]
+            if st.session_state[te_key]:
+                with st.form(key=f"tech_edit_form_{tid}"):
+                    en1, en2 = st.columns(2)
+                    new_name  = en1.text_input("Name", value=t_name)
+                    new_short = en2.text_input("Short name / acronym", value=t_short)
+                    new_desc   = st.text_area("What it is", value=t_desc, height=120)
+                    new_thesis = st.text_area("Disruption thesis", value=t_thesis, height=100)
+                    new_uc = st.text_area("Primary use cases (one per line)",
+                                          value="\n".join(use_cases), height=100)
+                    new_kp = st.text_area("Key players (one per line)",
+                                          value="\n".join(key_players), height=80)
+                    em1, em2 = st.columns(2)
+                    cat_edit_opts = sorted(set(cat_opts[1:] + ["AI/ML", "Infrastructure", "Data", "Hardware", "Other"]))
+                    new_cat = em1.selectbox("Category", cat_edit_opts,
+                        index=cat_edit_opts.index(t_cat) if t_cat in cat_edit_opts else 0,
+                        key=f"tech_cat_edit_{tid}")
+                    new_mat = em2.slider("Maturity level (0–100)", 0, 100, int(maturity or 0),
+                                         key=f"tech_mat_edit_{tid}")
+                    new_mat_rat = st.text_area("Maturity rationale / source",
+                                               value=tech.get("maturity_rationale") or "", height=70)
+                    edit_reason = st.text_area("🧠 Reason for change", height=60,
+                        placeholder="e.g. 'Updated maturity to 80 after Gartner Hype Cycle 2025 placed RAG in Slope of Enlightenment.'")
+                    if st.form_submit_button("💾 Save", type="primary"):
+                        if not edit_reason.strip():
+                            st.error("Please enter a reason.")
+                        else:
+                            now = datetime.now(timezone.utc).isoformat()
+                            new_uc_list = [l.strip() for l in new_uc.split("\n") if l.strip()]
+                            new_kp_list = [l.strip() for l in new_kp.split("\n") if l.strip()]
+                            run_query("""
+                                MATCH (t:Technology {tech_id: $tid})
+                                SET t.name=$name, t.short_name=$short,
+                                    t.description=$desc, t.disruption_thesis=$thesis,
+                                    t.primary_use_cases=$uc, t.key_players=$kp,
+                                    t.category=$cat, t.maturity_level=$mat,
+                                    t.maturity_rationale=$mat_rat,
+                                    t.updated_at=$now, t.last_edited_by='editorial'
+                            """, tid=tid, name=new_name, short=new_short, desc=new_desc,
+                                thesis=new_thesis, uc=new_uc_list, kp=new_kp_list,
+                                cat=new_cat, mat=float(new_mat), mat_rat=new_mat_rat, now=now)
+                            tech_append({"tech_id": tid, "name": t_name, "timestamp": now,
+                                         "change_type": "edit", "reason": edit_reason.strip()})
+                            st.success("✅ Technology updated.")
+                            st.session_state[te_key] = False
+                            st.rerun()
+
+            th = tech_load_history(tid)
+            if th:
+                st.markdown(f"**📋 Edit history ({len(th)})**")
+                for h in reversed(th[-4:]):
+                    st.caption(f"_{h.get('timestamp','')[:16]}  [{h.get('change_type','')}]  {h.get('reason','')[:90]}_")
+
+    # ── Add Technology ─────────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("➕ Add Technology")
+    add_tab1, add_tab2 = st.tabs(["📝 Manual form", "📄 Extract from text / file"])
+
+    with add_tab1:
+        with st.form("tech_add_form"):
+            st.markdown("**Basic information**")
+            af1, af2 = st.columns(2)
+            add_name  = af1.text_input("Technology name *", placeholder="e.g. Federated Learning")
+            add_short = af2.text_input("Short name / acronym", placeholder="e.g. FL")
+            add_desc  = st.text_area("What it is *", height=120,
+                placeholder="Describe the technology and why it matters for business model transformation…")
+            add_thesis = st.text_area("Disruption thesis", height=100,
+                placeholder="Which business models does this threaten or enable? Why now?")
+            st.markdown("**Details**")
+            bf1, bf2 = st.columns(2)
+            add_cat_opts = ["AI/ML", "Infrastructure", "Data", "Hardware", "Fintech", "Biotech", "Other"]
+            add_cat = bf1.selectbox("Category", add_cat_opts, key="add_cat")
+            add_mat = bf2.slider("Maturity level (0–100)", 0, 100, 30, key="add_mat",
+                                  help="0=research, 30=early pilots, 60=production-ready, 80=widespread, 100=commodity")
+            add_uc  = st.text_area("Primary use cases (one per line)", height=90,
+                placeholder="Enterprise knowledge management\nCustomer support automation\n…")
+            add_kp  = st.text_area("Key players (one per line)", height=70,
+                placeholder="Google DeepMind\nOpenAI\nAnthropix\n…")
+            add_mat_rat = st.text_area("Maturity rationale / source", height=60,
+                placeholder="e.g. 'Gartner Hype Cycle 2025 — Slope of Enlightenment'")
+
+            if st.form_submit_button("➕ Add technology", type="primary"):
+                if not add_name.strip() or not add_desc.strip():
+                    st.error("Name and description are required.")
+                else:
+                    now   = datetime.now(timezone.utc).isoformat()
+                    new_id = next_tech_id()
+                    uc_list = [l.strip() for l in add_uc.split("\n") if l.strip()]
+                    kp_list = [l.strip() for l in add_kp.split("\n") if l.strip()]
+                    run_query("""
+                        CREATE (t:Technology {
+                            tech_id:            $tid,
+                            name:               $name,
+                            short_name:         $short,
+                            category:           $cat,
+                            description:        $desc,
+                            disruption_thesis:  $thesis,
+                            primary_use_cases:  $uc,
+                            key_players:        $kp,
+                            maturity_level:     $mat,
+                            maturity_rationale: $mat_rat,
+                            tracking_status:    'Active',
+                            source:             'manual_entry',
+                            created_by:         'editorial',
+                            confidence:         0.8,
+                            created_at:         $now,
+                            updated_at:         $now
+                        })
+                    """, tid=new_id, name=add_name.strip(), short=add_short.strip(),
+                        cat=add_cat, desc=add_desc.strip(), thesis=add_thesis.strip(),
+                        uc=uc_list, kp=kp_list, mat=float(add_mat),
+                        mat_rat=add_mat_rat.strip(), now=now)
+                    tech_append({"tech_id": new_id, "name": add_name.strip(),
+                                  "timestamp": now, "change_type": "created",
+                                  "reason": "Manual entry via UI"})
+                    st.success(f"✅ Added {add_name.strip()} ({new_id})")
+                    st.rerun()
+
+    with add_tab2:
+        st.markdown("Paste an article, research paper excerpt, or upload a text/PDF file. Claude will extract a structured technology profile for you to review before saving.")
+
+        extract_method = st.radio("Input method", ["Paste text", "Upload file"], horizontal=True, key="tech_extract_method")
+        raw_text = ""
+        if extract_method == "Paste text":
+            raw_text = st.text_area("Paste content here", height=200, key="tech_paste",
+                placeholder="Paste a blog post, research paper, product announcement, or any description of the technology…")
+        else:
+            uploaded = st.file_uploader("Upload file", type=["txt", "md", "pdf"],
+                                         key="tech_upload", help="Plain text, Markdown, or PDF (first 4000 chars used)")
+            if uploaded:
+                try:
+                    if uploaded.type == "application/pdf":
+                        import io
+                        raw_bytes = uploaded.read()
+                        try:
+                            import pdfplumber
+                            with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
+                                raw_text = "\n".join(p.extract_text() or "" for p in pdf.pages[:8])
+                        except ImportError:
+                            st.warning("pdfplumber not installed — trying raw text extraction.")
+                            raw_text = raw_bytes.decode("utf-8", errors="ignore")
+                    else:
+                        raw_text = uploaded.read().decode("utf-8", errors="ignore")
+                    st.caption(f"Loaded {len(raw_text)} characters.")
+                except Exception as e:
+                    st.error(f"Could not read file: {e}")
+
+        if raw_text and st.button("🤖 Extract technology profile", key="tech_extract_btn"):
+            with st.spinner("Calling Claude to extract technology profile…"):
+                try:
+                    _client = _anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+                    resp = _client.messages.create(
+                        model="claude-haiku-4-5",
+                        max_tokens=2000,
+                        system="""You are a technology analyst. Extract a structured technology profile from the provided text.
+Return ONLY a JSON object with these fields (use null for fields you cannot determine):
+{
+  "name": "Full technology name",
+  "short_name": "Acronym or short name (or null)",
+  "category": "One of: AI/ML, Infrastructure, Data, Hardware, Fintech, Biotech, Other",
+  "description": "2-4 sentence description of what it is and how it works",
+  "disruption_thesis": "2-3 sentences on which business models it threatens or enables and why",
+  "primary_use_cases": ["use case 1", "use case 2", "use case 3"],
+  "key_players": ["Company A", "Company B"],
+  "maturity_level": <integer 0-100>,
+  "maturity_rationale": "One sentence on why you assigned that maturity level"
+}""",
+                        messages=[{"role": "user", "content": f"Extract a technology profile from this text:\n\n{raw_text[:5000]}"}],
+                    )
+                    import re as _re
+                    raw_resp = resp.content[0].text.strip()
+                    m = _re.search(r"\{[\s\S]*\}", raw_resp)
+                    if m:
+                        extracted = json.loads(m.group(0))
+                        st.session_state["tech_extracted"] = extracted
+                        st.success("✅ Profile extracted — review and save below.")
+                    else:
+                        st.error("Could not parse JSON from response.")
+                except Exception as e:
+                    st.error(f"Extraction failed: {e}")
+
+        if "tech_extracted" in st.session_state:
+            ex = st.session_state["tech_extracted"]
+            st.markdown("#### Review extracted profile")
+            with st.form("tech_extracted_form"):
+                ef1, ef2 = st.columns(2)
+                ex_name  = ef1.text_input("Name", value=ex.get("name") or "")
+                ex_short = ef2.text_input("Short name", value=ex.get("short_name") or "")
+                ex_desc   = st.text_area("What it is", value=ex.get("description") or "", height=100)
+                ex_thesis = st.text_area("Disruption thesis", value=ex.get("disruption_thesis") or "", height=90)
+                ex_uc = st.text_area("Use cases (one per line)",
+                                     value="\n".join(ex.get("primary_use_cases") or []), height=80)
+                ex_kp = st.text_area("Key players (one per line)",
+                                     value="\n".join(ex.get("key_players") or []), height=70)
+                ef3, ef4 = st.columns(2)
+                ex_cat_opts = ["AI/ML", "Infrastructure", "Data", "Hardware", "Fintech", "Biotech", "Other"]
+                cur_cat = ex.get("category") or "Other"
+                ex_cat = ef3.selectbox("Category", ex_cat_opts,
+                    index=ex_cat_opts.index(cur_cat) if cur_cat in ex_cat_opts else len(ex_cat_opts)-1,
+                    key="ex_cat_sel")
+                ex_mat = ef4.slider("Maturity", 0, 100, int(ex.get("maturity_level") or 30), key="ex_mat_sl")
+                ex_mat_rat = st.text_area("Maturity rationale", value=ex.get("maturity_rationale") or "", height=60)
+
+                if st.form_submit_button("➕ Save this technology", type="primary"):
+                    if not ex_name.strip():
+                        st.error("Name is required.")
+                    else:
+                        now    = datetime.now(timezone.utc).isoformat()
+                        new_id = next_tech_id()
+                        uc_list = [l.strip() for l in ex_uc.split("\n") if l.strip()]
+                        kp_list = [l.strip() for l in ex_kp.split("\n") if l.strip()]
+                        run_query("""
+                            CREATE (t:Technology {
+                                tech_id:            $tid,
+                                name:               $name,
+                                short_name:         $short,
+                                category:           $cat,
+                                description:        $desc,
+                                disruption_thesis:  $thesis,
+                                primary_use_cases:  $uc,
+                                key_players:        $kp,
+                                maturity_level:     $mat,
+                                maturity_rationale: $mat_rat,
+                                tracking_status:    'Active',
+                                source:             'extracted',
+                                created_by:         'editorial_extract',
+                                confidence:         0.75,
+                                created_at:         $now,
+                                updated_at:         $now
+                            })
+                        """, tid=new_id, name=ex_name.strip(), short=ex_short.strip(),
+                            cat=ex_cat, desc=ex_desc.strip(), thesis=ex_thesis.strip(),
+                            uc=uc_list, kp=kp_list, mat=float(ex_mat),
+                            mat_rat=ex_mat_rat.strip(), now=now)
+                        tech_append({"tech_id": new_id, "name": ex_name.strip(),
+                                      "timestamp": now, "change_type": "created",
+                                      "reason": "Extracted from uploaded content"})
+                        del st.session_state["tech_extracted"]
+                        st.success(f"✅ Added {ex_name.strip()} ({new_id})")
+                        st.rerun()
+
+    # ── Global changelog ────────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("📋 Technology Edit Log")
+    if os.path.exists(tech_log_path):
+        with open(tech_log_path) as f:
+            all_tech_log = [json.loads(l) for l in f if l.strip()]
+        if all_tech_log:
+            st.dataframe([{
+                "Time":    e.get("timestamp","")[:16],
+                "Tech":    e.get("name","") or e.get("tech_id",""),
+                "Change":  e.get("change_type",""),
+                "Reason":  e.get("reason","")[:80],
+            } for e in reversed(all_tech_log)], use_container_width=True, hide_index=True)
+    else:
+        st.caption("No changes logged yet.")
 
 
 # ── Page: Graph Overview ──────────────────────────────────────────────────────
