@@ -612,8 +612,11 @@ elif page == "🔀 Transition Case Studies":
             all_companies = flatten_companies(vec.get("all_companies_raw"))
             company_str   = ", ".join(all_companies) if all_companies else "Unknown"
 
-            card_label = f"🏢 {company_str}  ·  {vec['from_bm']} → {vec['to_bm']}"
+            card_label = f"{vec['from_bm']} → {vec['to_bm']}  ·  {company_str}"
             with st.expander(card_label, expanded=False):
+
+                st.markdown(f"<u>**{vec['from_bm']} → {vec['to_bm']}**</u>  —  {company_str}",
+                            unsafe_allow_html=True)
 
                 # ── Stat row ──────────────────────────────────────────────────
                 s1, s2, s3, s4 = st.columns(4)
