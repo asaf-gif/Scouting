@@ -918,6 +918,7 @@ elif page == "📐 Transformations":
         RETURN v.vector_id          AS vid,
                v.signal_strength    AS signal,
                v.opportunity_score  AS opp,
+               v.description        AS description,
                v.example_text       AS example_text,
                f.name               AS from_bm,
                f.bim_id             AS from_id,
@@ -942,6 +943,7 @@ elif page == "📐 Transformations":
                            q in (t.get("from_bm") or "").lower()
                            or q in (t.get("to_bm") or "").lower()
                            or q in (t.get("example_text") or "").lower()
+                           or q in (t.get("description") or "").lower()
                            or q in (t.get("hyp_title") or "").lower()]
 
     st.divider()
@@ -974,10 +976,17 @@ elif page == "📐 Transformations":
             m3.metric("Evidence", ev_count)
             m4.metric("Scalars", sc_count)
 
+            # General description (editable, separate from example)
+            desc = tr.get("description") or ""
+            if desc:
+                st.markdown("#### 📝 Description")
+                st.markdown(desc)
+
             ex = tr.get("example_text") or ""
             if ex:
-                st.markdown("#### 📝 Description")
-                st.markdown(ex)
+                st.markdown("#### 📌 Example")
+                st.caption(ex)
+            if desc or ex:
                 st.divider()
 
             # Evidence
@@ -1088,6 +1097,42 @@ elif page == "📐 Transformations":
                                 st.session_state[tv_sc_key] = False
                                 st.rerun()
                 st.divider()
+
+            # Description edit (always available, not tied to hypothesis)
+            tv_desc_key = f"tv_desc_edit_{vid}"
+            if tv_desc_key not in st.session_state:
+                st.session_state[tv_desc_key] = False
+            if st.button("✏️ Edit description", key=f"tv_btn_desc_{vid}"):
+                st.session_state[tv_desc_key] = not st.session_state[tv_desc_key]
+            if st.session_state[tv_desc_key]:
+                with st.form(key=f"tv_desc_form_{vid}"):
+                    new_desc = st.text_area(
+                        "General description of this transition pattern",
+                        value=desc,
+                        height=120,
+                        help="Describe what drives this transition in general terms — not tied to one company",
+                        placeholder="e.g. 'Companies with mature software products shift from one-time licence fees to recurring subscription revenue. The key driver is predictable cashflow and lower barrier to adoption…'",
+                    )
+                    desc_reason = st.text_area("🧠 Reason / source", height=60,
+                        placeholder="e.g. 'Written after reviewing 4 evidence nodes.'")
+                    if st.form_submit_button("💾 Save description", type="primary"):
+                        if not desc_reason.strip():
+                            st.error("Please enter a reason.")
+                        else:
+                            now = datetime.now(timezone.utc).isoformat()
+                            run_query("""
+                                MATCH (v:TransformationVector {vector_id: $vid})
+                                SET v.description=$desc, v.last_edited_at=$now,
+                                    v.last_edited_by='editorial'
+                            """, vid=vid, desc=new_desc, now=now)
+                            tv_append({"vector_id": vid, "from_bm": tr["from_bm"],
+                                       "to_bm": tr["to_bm"], "timestamp": now,
+                                       "change_type": "description_edit",
+                                       "old_desc": desc, "new_desc": new_desc,
+                                       "reason": desc_reason.strip()})
+                            st.success("✅ Description saved.")
+                            st.session_state[tv_desc_key] = False
+                            st.rerun()
 
             # Hypothesis
             if has_hyp:
