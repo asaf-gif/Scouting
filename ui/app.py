@@ -2189,11 +2189,400 @@ if page == "📊 Graph Overview":
 # ── Page: Input Review Queue ──────────────────────────────────────────────────
 
 elif page == "📋 Input Review Queue":
-    st.title("Input Review Queue")
-    st.caption("Items added by agents that need human approval before entering the active graph.")
+    st.title("📋 Input Review Queue")
+    st.caption("Every item created or found by agents must be reviewed here before it's considered active.")
 
-    # Tabs for each node type
-    tab_bm, tab_co, tab_tech = st.tabs(["Business Models", "Companies", "Technologies"])
+    _now_irq = datetime.now(timezone.utc).isoformat()
+
+    # ── queue counts ──────────────────────────────────────────────────────────
+    _q_hyp  = run_query("MATCH (h:DisruptionHypothesis) WHERE h.pending_human_review = true OR h.status = 'Hypothesis' RETURN count(h) AS n") or [{"n":0}]
+    _q_ev   = run_query("MATCH (e:Evidence) WHERE e.reviewed_by IS NULL RETURN count(e) AS n") or [{"n":0}]
+    _q_tv   = run_query("MATCH (v:TransformationVector) WHERE v.reviewed_by IS NULL AND v.created_by = 'vector_extractor' RETURN count(v) AS n") or [{"n":0}]
+    _q_sc   = run_query("MATCH (s:Scalar) WHERE s.pending_human_review = true RETURN count(s) AS n") or [{"n":0}]
+    _q_tech = run_query("MATCH (t:Technology) WHERE t.pending_human_review = true RETURN count(t) AS n") or [{"n":0}]
+    _q_bm   = run_query("MATCH (b:BusinessModel) WHERE b.pending_human_review = true RETURN count(b) AS n") or [{"n":0}]
+    _q_co   = run_query("MATCH (c:Company) WHERE c.pending_human_review = true RETURN count(c) AS n") or [{"n":0}]
+
+    n_hyp  = _q_hyp[0]["n"]
+    n_ev   = _q_ev[0]["n"]
+    n_tv   = _q_tv[0]["n"]
+    n_sc   = _q_sc[0]["n"]
+    n_tech = _q_tech[0]["n"]
+    n_bm   = _q_bm[0]["n"]
+    n_co   = _q_co[0]["n"]
+    total_pending = n_hyp + n_ev + n_tv + n_sc + n_tech + n_bm + n_co
+
+    # summary banner
+    badge_color = "#c0392b" if total_pending > 0 else "#27ae60"
+    st.markdown(
+        f"<div style='background:#1a1a1a;border:1px solid {badge_color};border-radius:8px;"
+        f"padding:12px 18px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap'>"
+        f"<span style='color:{badge_color};font-weight:700;font-size:1.1rem'>🔔 {total_pending} pending</span>"
+        f"<span style='color:#aaa'>🧠 {n_hyp} hypotheses</span>"
+        f"<span style='color:#aaa'>📎 {n_ev} case studies</span>"
+        f"<span style='color:#aaa'>🔀 {n_tv} transformations</span>"
+        f"<span style='color:#aaa'>⚡ {n_sc} scalars</span>"
+        f"<span style='color:#aaa'>🔬 {n_tech} technologies</span>"
+        f"<span style='color:#aaa'>📚 {n_bm} business models</span>"
+        f"<span style='color:#aaa'>🏢 {n_co} companies</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    tab_hyp, tab_ev, tab_tv, tab_sc, tab_tech, tab_bm, tab_co = st.tabs([
+        f"🧠 Hypotheses ({n_hyp})",
+        f"📎 Case Studies ({n_ev})",
+        f"🔀 Transformations ({n_tv})",
+        f"⚡ Scalars ({n_sc})",
+        f"🔬 Technologies ({n_tech})",
+        f"📚 Business Models ({n_bm})",
+        f"🏢 Companies ({n_co})",
+    ])
+
+    # ── helper ─────────────────────────────────────────────────────────────────
+    def irq_approve_reject(node_label, id_field, node_id, tab_prefix,
+                           approve_cypher, reject_cypher,
+                           approve_params=None, reject_params=None):
+        """Render approve / reject buttons. Returns nothing; triggers st.rerun on action."""
+        c1, c2 = st.columns(2)
+        if c1.button("✅ Approve", key=f"irq_approve_{tab_prefix}_{node_id}"):
+            p = (approve_params or {})
+            p.setdefault("now", _now_irq)
+            p[id_field] = node_id
+            run_query(approve_cypher, **p)
+            st.rerun()
+        if c2.button("❌ Reject", key=f"irq_reject_{tab_prefix}_{node_id}"):
+            p = (reject_params or {})
+            p.setdefault("now", _now_irq)
+            p[id_field] = node_id
+            run_query(reject_cypher, **p)
+            st.rerun()
+
+    # ── Hypotheses ─────────────────────────────────────────────────────────────
+    with tab_hyp:
+        if n_hyp == 0:
+            st.success("✅ All hypotheses reviewed.")
+        else:
+            _rq_page_hyp = st.number_input("Page", min_value=1, value=1, key="irq_page_hyp", step=1)
+            _rq_ps_hyp = 10
+            _rq_skip_hyp = (_rq_page_hyp - 1) * _rq_ps_hyp
+
+            hyps = run_query(f"""
+                MATCH (h:DisruptionHypothesis)-[:TRIGGERED_BY]->(t:Technology)
+                MATCH (h)-[:GENERATED_FROM]->(v:TransformationVector)
+                OPTIONAL MATCH (fb:BusinessModel {{bim_id: h.from_bim_id}})
+                OPTIONAL MATCH (tb:BusinessModel {{bim_id: h.to_bim_id}})
+                WHERE h.pending_human_review = true OR h.status = 'Hypothesis'
+                RETURN h.hypothesis_id AS hid,
+                       h.title          AS title,
+                       h.thesis         AS thesis,
+                       h.conviction_score AS conviction,
+                       h.activation_score AS activation,
+                       h.disruption_type  AS dtype,
+                       h.time_horizon     AS horizon,
+                       h.companies_exposed AS companies,
+                       t.name AS tech_name,
+                       fb.name AS from_bm, tb.name AS to_bm,
+                       h.created_at AS created_at
+                ORDER BY h.conviction_score DESC
+                SKIP {_rq_skip_hyp} LIMIT {_rq_ps_hyp}
+            """) or []
+
+            st.caption(f"Showing {_rq_skip_hyp+1}–{_rq_skip_hyp+len(hyps)} of {n_hyp}")
+
+            for h in hyps:
+                hid  = h["hid"]
+                conv = h.get("conviction") or 0
+                act  = h.get("activation") or 0
+                icon = "🟢" if conv >= 0.7 else ("🟡" if conv >= 0.5 else "🔴")
+                with st.expander(
+                    f"{icon}  **{h.get('from_bm','?')} → {h.get('to_bm','?')}**  "
+                    f"·  ⚡ {h.get('tech_name','?')}  ·  conviction={conv:.2f}  ·  activation={act:.3f}"
+                ):
+                    st.markdown(f"**{h.get('title','—')}**")
+                    st.markdown(h.get("thesis") or "—")
+                    cos_str = ", ".join(h.get("companies") or []) or "—"
+                    st.caption(f"Companies mentioned: {cos_str[:120]}")
+                    st.caption(f"Type: {h.get('dtype','?')}  ·  Horizon: {h.get('horizon','?')}  ·  ID: {hid}")
+
+                    # linked companies from DB
+                    _lc = run_query("""
+                        MATCH (c:Company)-[:EXPOSED_TO]->(h:DisruptionHypothesis {hypothesis_id: $hid})
+                        RETURN c.name AS name, c.ticker AS ticker
+                        ORDER BY c.name LIMIT 8
+                    """, hid=hid) or []
+                    if _lc:
+                        st.caption("🏢 In our database: " + "  ·  ".join(
+                            f"{r['name']} ({r['ticker']})" if r.get('ticker') else r['name']
+                            for r in _lc
+                        ))
+
+                    st.divider()
+                    a1, a2, a3, a4 = st.columns(4)
+                    if a1.button("✅ Validate", key=f"irq_hyp_val_{hid}"):
+                        run_query("""
+                            MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
+                            SET h.status = 'Validated',
+                                h.pending_human_review = false,
+                                h.reviewed_at = $now, h.reviewed_by = 'human_ui'
+                        """, hid=hid, now=_now_irq)
+                        st.rerun()
+                    if a2.button("❌ Reject", key=f"irq_hyp_rej_{hid}"):
+                        run_query("""
+                            MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
+                            SET h.status = 'Rejected',
+                                h.pending_human_review = false,
+                                h.reviewed_at = $now, h.reviewed_by = 'human_ui'
+                        """, hid=hid, now=_now_irq)
+                        st.rerun()
+                    if a3.button("⬆️ Escalate", key=f"irq_hyp_esc_{hid}"):
+                        run_query("""
+                            MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
+                            SET h.status = 'Escalated',
+                                h.pending_human_review = false,
+                                h.reviewed_at = $now, h.reviewed_by = 'human_ui'
+                        """, hid=hid, now=_now_irq)
+                        st.rerun()
+                    if a4.button("🔬 More research", key=f"irq_hyp_res_{hid}"):
+                        run_query("""
+                            MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
+                            SET h.status = 'Needs Research',
+                                h.pending_human_review = true,
+                                h.reviewed_at = $now, h.reviewed_by = 'human_ui'
+                        """, hid=hid, now=_now_irq)
+                        st.rerun()
+
+            # bulk approve
+            st.divider()
+            if st.button(f"✅✅ Approve all {n_hyp} hypotheses", key="irq_hyp_bulk"):
+                run_query("""
+                    MATCH (h:DisruptionHypothesis)
+                    WHERE h.pending_human_review = true OR h.status = 'Hypothesis'
+                    SET h.status = 'Validated',
+                        h.pending_human_review = false,
+                        h.reviewed_at = $now, h.reviewed_by = 'human_ui_bulk'
+                """, now=_now_irq)
+                st.rerun()
+
+    # ── Case Studies (Evidence) ─────────────────────────────────────────────────
+    with tab_ev:
+        if n_ev == 0:
+            st.success("✅ All case studies reviewed.")
+        else:
+            _rq_page_ev = st.number_input("Page", min_value=1, value=1, key="irq_page_ev", step=1)
+            _rq_ps_ev   = 15
+            _rq_skip_ev = (_rq_page_ev - 1) * _rq_ps_ev
+
+            evs = run_query(f"""
+                MATCH (e:Evidence)
+                WHERE e.reviewed_by IS NULL
+                OPTIONAL MATCH (e)-[:SUPPORTS]->(v:TransformationVector)
+                                -[:FROM_BIM]->(fb:BusinessModel)
+                OPTIONAL MATCH (v)-[:TO_BIM]->(tb:BusinessModel)
+                WITH e, head(collect(fb.name)) AS from_bm,
+                         head(collect(tb.name)) AS to_bm
+                RETURN e.evidence_id     AS eid,
+                       e.transition_summary AS summary,
+                       e.source_url      AS url,
+                       e.source_type     AS source_type,
+                       e.confidence      AS confidence,
+                       e.companies_mentioned AS companies,
+                       e.evidence_quote  AS quote,
+                       e.extracted_at    AS extracted_at,
+                       e.created_by      AS created_by,
+                       from_bm, to_bm
+                ORDER BY e.extracted_at DESC
+                SKIP {_rq_skip_ev} LIMIT {_rq_ps_ev}
+            """) or []
+
+            st.caption(f"Showing {_rq_skip_ev+1}–{_rq_skip_ev+len(evs)} of {n_ev}")
+
+            for ev in evs:
+                eid  = ev["eid"]
+                conf = ev.get("confidence") or 0
+                bm_label = f"{ev.get('from_bm','?')} → {ev.get('to_bm','?')}" if ev.get("from_bm") else "—"
+                with st.expander(
+                    f"**{eid}**  ·  {bm_label}  ·  conf={conf:.2f}"
+                    + (f"  ·  [{ev.get('source_type','')}]" if ev.get("source_type") else "")
+                ):
+                    st.markdown(ev.get("summary") or "_No summary_")
+                    if ev.get("quote"):
+                        st.markdown(
+                            f"<blockquote style='border-left:3px solid #555;padding:6px 10px;"
+                            f"color:#aaa;font-size:0.85rem'>{(ev['quote'] or '')[:300]}</blockquote>",
+                            unsafe_allow_html=True,
+                        )
+                    cos = ", ".join(ev.get("companies") or []) or "—"
+                    st.caption(f"Companies: {cos}")
+                    if ev.get("url"):
+                        st.caption(f"[Source]({ev['url']})")
+                    st.caption(f"Extracted: {ev.get('extracted_at','')}  ·  By: {ev.get('created_by','?')}")
+
+                    st.divider()
+                    c1, c2, c3 = st.columns(3)
+                    if c1.button("✅ Approve", key=f"irq_ev_app_{eid}"):
+                        run_query("""
+                            MATCH (e:Evidence {evidence_id: $eid})
+                            SET e.reviewed_by = 'human_ui',
+                                e.reviewed_at = $now
+                        """, eid=eid, now=_now_irq)
+                        st.rerun()
+                    if c2.button("❌ Reject", key=f"irq_ev_rej_{eid}"):
+                        run_query("""
+                            MATCH (e:Evidence {evidence_id: $eid})
+                            SET e.reviewed_by = 'human_ui',
+                                e.reviewed_at = $now,
+                                e.status = 'Rejected'
+                        """, eid=eid, now=_now_irq)
+                        st.rerun()
+                    if c3.button("🚩 Flag", key=f"irq_ev_flag_{eid}"):
+                        run_query("""
+                            MATCH (e:Evidence {evidence_id: $eid})
+                            SET e.reviewed_by = 'human_ui',
+                                e.reviewed_at = $now,
+                                e.status = 'Flagged'
+                        """, eid=eid, now=_now_irq)
+                        st.rerun()
+
+            st.divider()
+            if st.button(f"✅✅ Approve all {n_ev} case studies", key="irq_ev_bulk"):
+                run_query("""
+                    MATCH (e:Evidence) WHERE e.reviewed_by IS NULL
+                    SET e.reviewed_by = 'human_ui_bulk', e.reviewed_at = $now
+                """, now=_now_irq)
+                st.rerun()
+
+    # ── Transformations (TransformationVector) ─────────────────────────────────
+    with tab_tv:
+        if n_tv == 0:
+            st.success("✅ All agent-created transformations reviewed.")
+        else:
+            _rq_page_tv = st.number_input("Page", min_value=1, value=1, key="irq_page_tv", step=1)
+            _rq_ps_tv   = 15
+            _rq_skip_tv = (_rq_page_tv - 1) * _rq_ps_tv
+
+            tvs = run_query(f"""
+                MATCH (v:TransformationVector)
+                WHERE v.reviewed_by IS NULL AND v.created_by = 'vector_extractor'
+                MATCH (v)-[:FROM_BIM]->(fb:BusinessModel)
+                MATCH (v)-[:TO_BIM]->(tb:BusinessModel)
+                WITH v, fb, tb,
+                     size([(v)-[:SUPPORTS]-() | 1]) AS evidence_count,
+                     size([(v)-[:IMPACTS]->() | 1]) AS scalar_count
+                RETURN v.vector_id      AS vid,
+                       v.example_text   AS example,
+                       v.confidence     AS confidence,
+                       v.signal_strength AS signal,
+                       v.created_at     AS created_at,
+                       evidence_count, scalar_count,
+                       fb.bim_id AS from_id, fb.name AS from_bm,
+                       tb.bim_id AS to_id,   tb.name AS to_bm
+                ORDER BY v.created_at DESC
+                SKIP {_rq_skip_tv} LIMIT {_rq_ps_tv}
+            """) or []
+
+            st.caption(f"Showing {_rq_skip_tv+1}–{_rq_skip_tv+len(tvs)} of {n_tv} agent-created transformations")
+
+            for tv in tvs:
+                vid  = tv["vid"]
+                conf = tv.get("confidence") or 0
+                sig  = tv.get("signal") or 0
+                with st.expander(
+                    f"**{vid}**  ·  {tv.get('from_bm','?')} → {tv.get('to_bm','?')}  "
+                    f"·  conf={conf:.2f}  ·  signal={sig:.2f}  "
+                    f"·  {tv.get('evidence_count',0)} evidence  ·  {tv.get('scalar_count',0)} scalars"
+                ):
+                    if tv.get("example"):
+                        st.markdown(f"_{tv['example'][:300]}_")
+                    st.caption(
+                        f"{tv.get('from_id','')} → {tv.get('to_id','')}  ·  "
+                        f"Created: {tv.get('created_at','')}"
+                    )
+                    st.divider()
+                    c1, c2 = st.columns(2)
+                    if c1.button("✅ Approve", key=f"irq_tv_app_{vid}"):
+                        run_query("""
+                            MATCH (v:TransformationVector {vector_id: $vid})
+                            SET v.reviewed_by = 'human_ui', v.reviewed_at = $now
+                        """, vid=vid, now=_now_irq)
+                        st.rerun()
+                    if c2.button("❌ Reject", key=f"irq_tv_rej_{vid}"):
+                        run_query("""
+                            MATCH (v:TransformationVector {vector_id: $vid})
+                            SET v.reviewed_by = 'human_ui', v.reviewed_at = $now,
+                                v.status = 'Rejected'
+                        """, vid=vid, now=_now_irq)
+                        st.rerun()
+
+            st.divider()
+            if st.button(f"✅✅ Approve all {n_tv} transformations", key="irq_tv_bulk"):
+                run_query("""
+                    MATCH (v:TransformationVector)
+                    WHERE v.reviewed_by IS NULL AND v.created_by = 'vector_extractor'
+                    SET v.reviewed_by = 'human_ui_bulk', v.reviewed_at = $now
+                """, now=_now_irq)
+                st.rerun()
+
+    # ── Scalars ────────────────────────────────────────────────────────────────
+    with tab_sc:
+        scs = run_query("""
+            MATCH (s:Scalar)
+            WHERE s.pending_human_review = true
+            RETURN s.scalar_id AS id, s.name AS name, s.group AS grp,
+                   s.description AS description, s.trend_direction AS trend,
+                   s.confidence AS confidence, s.created_at AS created_at
+            ORDER BY s.created_at DESC
+        """) or []
+        if not scs:
+            st.success("✅ No scalars pending review.")
+        else:
+            for sc in scs:
+                sid = sc["id"]
+                with st.expander(f"**{sid}** — {sc['name']}  ·  group={sc.get('grp','?')}"):
+                    st.markdown(sc.get("description") or "—")
+                    st.caption(f"Trend: {sc.get('trend','?')}  ·  Confidence: {sc.get('confidence','?')}  ·  Created: {sc.get('created_at','')}")
+                    st.divider()
+                    irq_approve_reject(
+                        "Scalar", "id", sid, "sc",
+                        "MATCH (s:Scalar {scalar_id: $id}) SET s.pending_human_review=false, s.status='Active', s.reviewed_at=$now, s.reviewed_by='human_ui'",
+                        "MATCH (s:Scalar {scalar_id: $id}) SET s.pending_human_review=false, s.status='Rejected', s.reviewed_at=$now, s.reviewed_by='human_ui'",
+                    )
+
+    # ── Technologies ───────────────────────────────────────────────────────────
+    with tab_tech:
+        techs = run_query("""
+            MATCH (n:Technology)
+            WHERE n.pending_human_review = true
+            WITH n, size([(n)-[:MOVES_SCALAR]->() | 1]) AS scalar_count,
+                 size([(n)-[:ACTIVATES]->() | 1]) AS vector_count
+            RETURN n.tech_id AS id, n.name AS name,
+                   n.maturity_level AS maturity,
+                   n.description AS description,
+                   n.disruption_thesis AS thesis,
+                   scalar_count, vector_count,
+                   n.created_at AS created_at
+            ORDER BY n.created_at DESC
+        """) or []
+        if not techs:
+            st.success("✅ No technologies pending review.")
+        else:
+            for tech in techs:
+                tid = tech["id"]
+                with st.expander(
+                    f"**{tid}** — {tech['name']}  ·  "
+                    f"maturity={tech.get('maturity','?')}  ·  "
+                    f"{tech.get('scalar_count',0)} scalars  ·  {tech.get('vector_count',0)} vectors activated"
+                ):
+                    st.markdown(tech.get("description") or "—")
+                    if tech.get("thesis"):
+                        st.markdown(f"**Thesis:** {tech['thesis']}")
+                    st.caption(f"Created: {tech.get('created_at','')}")
+                    st.divider()
+                    irq_approve_reject(
+                        "Technology", "id", tid, "tech",
+                        "MATCH (n:Technology {tech_id: $id}) SET n.pending_human_review=false, n.reviewed_at=$now, n.reviewed_by='human_ui'",
+                        "MATCH (n:Technology {tech_id: $id}) SET n.pending_human_review=false, n.tracking_status='Rejected', n.reviewed_at=$now, n.reviewed_by='human_ui'",
+                    )
 
     # ── Business Models ────────────────────────────────────────────────────────
     with tab_bm:
@@ -2206,179 +2595,57 @@ elif page == "📋 Input Review Queue":
                    coalesce(n.confidence, 0.0) AS confidence,
                    n.created_at AS created_at
             ORDER BY n.created_at DESC
-        """)
-
+        """) or []
         if not bms:
-            st.success("No business models pending review.")
+            st.success("✅ No business models pending review.")
         else:
-            st.info(f"{len(bms)} business model(s) pending review")
             for bm in bms:
-                with st.expander(f"**{bm['id']}** — {bm['name']}  ·  conf={bm['confidence']:.2f}  ·  source={bm['source']}"):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"**Description:** {bm['description'] or '—'}")
-                        st.markdown(f"**Typical margins:** {bm['margins'] or '—'}")
-                        st.caption(f"Created: {bm['created_at']}")
-
-                    with col2:
-                        approve_key = f"approve_bm_{bm['id']}"
-                        reject_key  = f"reject_bm_{bm['id']}"
-
-                        if st.button("✅ Approve", key=approve_key):
-                            run_query("""
-                                MATCH (n:BusinessModel {bim_id: $id})
-                                SET n.pending_human_review = false,
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=bm["id"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.success(f"{bm['id']} approved")
-                            st.rerun()
-
-                        if st.button("❌ Reject", key=reject_key):
-                            run_query("""
-                                MATCH (n:BusinessModel {bim_id: $id})
-                                SET n.status = 'Rejected',
-                                    n.pending_human_review = false,
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=bm["id"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.warning(f"{bm['id']} rejected")
-                            st.rerun()
+                bid = bm["id"]
+                with st.expander(f"**{bid}** — {bm['name']}  ·  conf={bm['confidence']:.2f}  ·  source={bm.get('source','?')}"):
+                    st.markdown(bm.get("description") or "—")
+                    st.caption(f"Margins: {bm.get('margins','?')}  ·  Created: {bm.get('created_at','')}")
+                    st.divider()
+                    irq_approve_reject(
+                        "BusinessModel", "id", bid, "bm",
+                        "MATCH (n:BusinessModel {bim_id: $id}) SET n.pending_human_review=false, n.reviewed_at=$now, n.reviewed_by='human_ui'",
+                        "MATCH (n:BusinessModel {bim_id: $id}) SET n.status='Rejected', n.pending_human_review=false, n.reviewed_at=$now, n.reviewed_by='human_ui'",
+                    )
 
     # ── Companies ──────────────────────────────────────────────────────────────
     with tab_co:
         companies = run_query("""
             MATCH (n:Company)
             WHERE n.pending_human_review = true
-            OPTIONAL MATCH (n)-[r:CURRENTLY_USES]->(bm:BusinessModel)
+            OPTIONAL MATCH (n)-[:OPERATES_AS {is_primary: true}]->(bm:BusinessModel)
             RETURN n.company_id AS id, n.name AS name,
                    n.hq_country AS country,
-                   n.funding_stage AS stage,
-                   n.ai_involvement AS ai,
-                   coalesce(n.bm_confidence, 0.0) AS bm_conf,
+                   n.description AS description,
+                   n.primary_industry AS industry,
+                   n.revenue_range AS revenue,
                    bm.bim_id AS bim_id, bm.name AS bm_name,
-                   n.description AS description,
-                   n.bm_rationale AS rationale,
                    n.created_at AS created_at
             ORDER BY n.created_at DESC
-        """)
-
+        """) or []
         if not companies:
-            st.success("No companies pending review.")
+            st.success("✅ No companies pending review.")
         else:
-            st.info(f"{len(companies)} company(s) pending review")
             for co in companies:
-                with st.expander(
-                    f"**{co['id']}** — {co['name']}  ·  "
-                    f"{co['bim_id'] or '?'} {co['bm_name'] or ''}  ·  "
-                    f"conf={co['bm_conf']:.2f}  ·  AI={co['ai'] or '?'}"
-                ):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"**Description:** {co['description'] or '—'}")
-                        st.markdown(f"**BM Rationale:** {co['rationale'] or '—'}")
-                        st.markdown(
-                            f"**Stage:** {co['stage'] or '?'}  |  "
-                            f"**Country:** {co['country'] or '?'}  |  "
-                            f"**AI involvement:** {co['ai'] or '?'}"
-                        )
-                        st.caption(f"Created: {co['created_at']}")
-
-                    with col2:
-                        approve_key = f"approve_co_{co['id']}"
-                        reject_key  = f"reject_co_{co['id']}"
-
-                        if st.button("✅ Approve", key=approve_key):
-                            run_query("""
-                                MATCH (n:Company {company_id: $id})
-                                SET n.pending_human_review = false,
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=co["id"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.success(f"{co['id']} approved")
-                            st.rerun()
-
-                        if st.button("❌ Reject", key=reject_key):
-                            run_query("""
-                                MATCH (n:Company {company_id: $id})
-                                SET n.pending_human_review = false,
-                                    n.status = 'Rejected',
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=co["id"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.warning(f"{co['id']} rejected")
-                            st.rerun()
-
-    # ── Technologies ───────────────────────────────────────────────────────────
-    with tab_tech:
-        techs = run_query("""
-            MATCH (n:Technology)
-            WHERE n.pending_human_review = true
-            OPTIONAL MATCH (n)-[r:INFLUENCES]->(sc:Scalar)
-            WITH n, count(sc) AS scalar_count
-            RETURN n.tech_id AS id, n.name AS name, n.short_name AS short_name,
-                   n.category AS category,
-                   n.maturity_level AS maturity,
-                   n.maturity_source AS maturity_source,
-                   coalesce(n.confidence, 0.0) AS confidence,
-                   n.description AS description,
-                   n.disruption_thesis AS thesis,
-                   scalar_count,
-                   n.created_at AS created_at
-            ORDER BY n.created_at DESC
-        """)
-
-        if not techs:
-            st.success("No technologies pending review.")
-        else:
-            st.info(f"{len(techs)} technology(s) pending review")
-            for tech in techs:
-                with st.expander(
-                    f"**{tech['id']}** — {tech['name']}  ·  "
-                    f"maturity={tech['maturity']}/100  ·  "
-                    f"{tech['scalar_count']} scalar impacts"
-                ):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"**Description:** {tech['description'] or '—'}")
-                        st.markdown(f"**Disruption thesis:** {tech['thesis'] or '—'}")
-                        st.markdown(
-                            f"**Maturity:** {tech['maturity']}/100  |  "
-                            f"**Source:** {tech['maturity_source'] or '?'}  |  "
-                            f"**Scalar impacts:** {tech['scalar_count']}"
-                        )
-                        st.caption(f"Created: {tech['created_at']}")
-
-                    with col2:
-                        approve_key = f"approve_tech_{tech['id']}"
-                        reject_key  = f"reject_tech_{tech['id']}"
-
-                        if st.button("✅ Approve", key=approve_key):
-                            run_query("""
-                                MATCH (n:Technology {tech_id: $id})
-                                SET n.pending_human_review = false,
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=tech["id"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.success(f"{tech['id']} approved")
-                            st.rerun()
-
-                        if st.button("❌ Reject", key=reject_key):
-                            run_query("""
-                                MATCH (n:Technology {tech_id: $id})
-                                SET n.pending_human_review = false,
-                                    n.tracking_status = 'Rejected',
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=tech["id"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.warning(f"{tech['id']} rejected")
-                            st.rerun()
+                coid = co["id"]
+                bm_label = f"{co.get('bim_id','?')} {co.get('bm_name','')}" if co.get("bim_id") else "No BM linked"
+                with st.expander(f"**{coid}** — {co['name']}  ·  {bm_label}"):
+                    st.markdown(co.get("description") or "—")
+                    st.caption(
+                        f"Industry: {co.get('industry','?')}  ·  "
+                        f"Revenue: {co.get('revenue','?')}  ·  "
+                        f"Country: {co.get('country','?')}  ·  "
+                        f"Created: {co.get('created_at','')}"
+                    )
+                    st.divider()
+                    irq_approve_reject(
+                        "Company", "id", coid, "co",
+                        "MATCH (n:Company {company_id: $id}) SET n.pending_human_review=false, n.reviewed_at=$now, n.reviewed_by='human_ui'",
+                        "MATCH (n:Company {company_id: $id}) SET n.pending_human_review=false, n.status='Rejected', n.reviewed_at=$now, n.reviewed_by='human_ui'",
+                    )
 
 
 # ── Page: Hypotheses ──────────────────────────────────────────────────────────
