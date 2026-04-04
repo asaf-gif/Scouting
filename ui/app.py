@@ -42,7 +42,7 @@ page = st.sidebar.radio(
     "Navigate",
     ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
      "⚡ Scalars", "🔬 Technologies", "🧠 Hypotheses", "🏢 Companies",
-     "📋 Input Review Queue", "📊 Graph Overview",
+     "📋 Input Review Queue",
      "🔄 Pipeline Monitor"],
 )
 
@@ -66,8 +66,6 @@ st.sidebar.markdown("""
 | 26–28 Orchestration | ✅ |
 """)
 
-
-# ── Page: Graph Overview ──────────────────────────────────────────────────────
 
 # ── Page: BM Library ─────────────────────────────────────────────────────────
 
@@ -2145,36 +2143,6 @@ elif page == "🏢 Companies":
                                 st.success("Saved")
                                 st.session_state[co_edit_key] = False
                                 st.rerun()
-
-
-# ── Page: Graph Overview ──────────────────────────────────────────────────────
-
-if page == "📊 Graph Overview":
-    st.title("Graph Overview")
-
-    counts = run_query("""
-        MATCH (n)
-        RETURN labels(n)[0] AS label, count(n) AS cnt
-        ORDER BY cnt DESC
-    """)
-
-    rel_counts = run_query("""
-        MATCH ()-[r]->()
-        RETURN type(r) AS rel_type, count(r) AS cnt
-        ORDER BY cnt DESC
-    """)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Node counts")
-        for row in counts:
-            st.metric(row["label"], row["cnt"])
-
-    with col2:
-        st.subheader("Relationship counts")
-        for row in rel_counts:
-            st.metric(row["rel_type"], row["cnt"])
 
 
 # ── Page: Input Review Queue ──────────────────────────────────────────────────
