@@ -41,8 +41,8 @@ st.sidebar.divider()
 page = st.sidebar.radio(
     "Navigate",
     ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
-     "⚡ Scalars", "🔬 Technologies", "📋 Input Review Queue",
-     "📊 Graph Overview", "🧠 Hypotheses", "📈 Top Opportunities",
+     "⚡ Scalars", "🔬 Technologies", "🧠 Hypotheses", "📋 Input Review Queue",
+     "📊 Graph Overview", "📈 Top Opportunities",
      "🔬 Validation Review", "📝 Editorial Queue", "🔄 Pipeline Monitor"],
 )
 
