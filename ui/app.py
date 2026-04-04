@@ -196,9 +196,9 @@ if page == "📚 BM Library":
                 all_vectors = run_query("""
                     MATCH (v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel {bim_id: $bid})
                     MATCH (v)-[:TO_BIM]->(t:BusinessModel)
+                    WITH v, t, size([(e:Evidence)-[:SUPPORTS]->(v)|e]) AS ev_count
                     OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
-                    WITH v, t, h,
-                         size([(e:Evidence)-[:SUPPORTS]->(v)|e]) AS ev_count
+                    WITH v, t, ev_count, head(collect(h)) AS h
                     RETURN v.vector_id       AS vector_id,
                            t.name            AS to_name,
                            t.bim_id          AS to_id,
@@ -534,9 +534,10 @@ elif page == "🔀 Transition Case Studies":
         MATCH (e:Evidence)-[:SUPPORTS]->(v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
         MATCH (v)-[:TO_BIM]->(t:BusinessModel)
         WHERE 1=1 {from_filter} {to_filter}
-        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
-        WITH e, v, f, t, h,
+        WITH e, v, f, t,
              size([(sc:Scalar)<-[:IMPACTS]-(v)|sc]) AS scalar_count
+        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
+        WITH e, v, f, t, scalar_count, head(collect(h)) AS h
         RETURN e.evidence_id          AS eid,
                e.companies_mentioned  AS companies,
                e.transition_summary   AS summary,
@@ -910,11 +911,12 @@ elif page == "📐 Transformations":
         MATCH (v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
         MATCH (v)-[:TO_BIM]->(t:BusinessModel)
         WHERE 1=1 {tv_from_filter}
-        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
-        WITH v, f, t, h,
+        WITH v, f, t,
              size([(e:Evidence)-[:SUPPORTS]->(v)|e])   AS evidence_count,
              size([(sc:Scalar)<-[:IMPACTS]-(v)|sc])    AS scalar_count
         WHERE 1=1 {tv_evidence_filter}
+        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
+        WITH v, f, t, evidence_count, scalar_count, head(collect(h)) AS h
         RETURN v.vector_id          AS vid,
                v.signal_strength    AS signal,
                v.opportunity_score  AS opp,
@@ -2509,8 +2511,9 @@ elif page == "📈 Top Opportunities":
         WHERE v.opportunity_score IS NOT NULL
         MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
         MATCH (v)-[:TO_BIM]->(t:BusinessModel)
-        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
         WHERE coalesce(v.best_tech_score, 0) >= {min_tech}
+        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
+        WITH v, f, t, head(collect(h)) AS h
         RETURN v.vector_id        AS vid,
                f.name             AS from_name,
                t.name             AS to_name,
