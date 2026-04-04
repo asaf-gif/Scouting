@@ -2231,27 +2231,7 @@ elif page == "🧠 Hypotheses":
         ORDER BY h.{sort_hyp} DESC
     """, **hyp_params)
 
-    # Also fetch old-style hypotheses (no TRIGGERED_BY) for backwards compat display
-    old_hypotheses = run_query("""
-        MATCH (h:DisruptionHypothesis)
-        WHERE NOT (h)-[:TRIGGERED_BY]->()
-        OPTIONAL MATCH (f:BusinessModel {bim_id: h.from_bim_id})
-        OPTIONAL MATCH (tb:BusinessModel {bim_id: h.to_bim_id})
-        RETURN h.hypothesis_id AS hid, h.title AS title, h.thesis AS thesis,
-               h.conviction_score AS conviction, h.status AS status,
-               h.pending_human_review AS pending,
-               f.name AS from_name, tb.name AS to_name,
-               'legacy' AS tech_id, '(pre-redesign)' AS tech_name,
-               null AS activation, null AS primary_scalar, null AS supporting_scalars,
-               h.companies_exposed AS companies, h.evidence_count AS evidence_count,
-               h.disruption_type AS dtype, h.time_horizon AS horizon,
-               h.counter_argument AS counter, h.feedback AS feedback,
-               h.created_at AS created_at, h.updated_at AS updated_at,
-               null AS vid, null AS tech_primary_scalar
-        ORDER BY h.conviction_score DESC
-    """) or []
-
-    all_hyps = (hypotheses or []) + (old_hypotheses if selected_tech_name == "All technologies" and status_filter == "All" else [])
+    all_hyps = hypotheses or []
 
     if search_hyp:
         q = search_hyp.lower()
@@ -2261,15 +2241,8 @@ elif page == "🧠 Hypotheses":
                     q in " ".join(h.get("companies") or []).lower() or
                     q in (h.get("tech_name") or "").lower()]
 
-    new_count = len(hypotheses or [])
-    old_count  = len(old_hypotheses) if selected_tech_name == "All technologies" else 0
     pending_count = sum(1 for h in all_hyps if h.get("pending"))
-
-    st.markdown(
-        f"**{len(all_hyps)} hypotheses** — "
-        f"{new_count} tech-triggered · {old_count} legacy · "
-        f"🔔 {pending_count} pending review"
-    )
+    st.markdown(f"**{len(all_hyps)} hypotheses** · 🔔 {pending_count} pending review")
 
     # ── load scalar name lookup ──
     _scalar_rows = run_query("MATCH (s:Scalar) RETURN s.scalar_id AS id, s.name AS name")
@@ -2282,15 +2255,13 @@ elif page == "🧠 Hypotheses":
         activ     = h.get("activation")
         conv_icon = "🟢" if conv >= 0.7 else ("🟡" if conv >= 0.5 else "🔴")
         status    = h.get("status") or "Hypothesis"
-        is_legacy = h.get("tech_id") == "legacy"
 
         status_badge = {"Validated": "✅", "Rejected": "❌", "Escalated": "⬆️",
                         "Hypothesis": "🔔"}.get(status, "●")
 
-        tech_label = "" if is_legacy else f"⚡ {h.get('tech_name','?')}  ·  "
         header = (
             f"{conv_icon} {status_badge}  **{h.get('from_name','?')} → {h.get('to_name','?')}**  "
-            f"·  {tech_label}"
+            f"·  ⚡ {h.get('tech_name','?')}  ·  "
             f"conviction={conv:.2f}"
             + (f"  ·  activation={activ:.3f}" if activ is not None else "")
             + f"  ·  {h.get('dtype','?')}  ·  {h.get('horizon','?')}"
@@ -2301,29 +2272,28 @@ elif page == "🧠 Hypotheses":
 
             with left_col:
                 # ── causal chain banner ──
-                if not is_legacy:
-                    aligned_scalars = h.get("supporting_scalars") or []
-                    primary = h.get("primary_scalar") or ""
-                    scalar_chain = []
-                    if primary:
-                        pname = scalar_names.get(primary, primary)
-                        scalar_chain.append(f"**{primary}** {pname[:45]}")
-                    for sid in (aligned_scalars or []):
-                        if sid != primary:
-                            sname = scalar_names.get(sid, sid)
-                            scalar_chain.append(f"{sid} {sname[:40]}")
+                aligned_scalars = h.get("supporting_scalars") or []
+                primary = h.get("primary_scalar") or ""
+                scalar_chain = []
+                if primary:
+                    pname = scalar_names.get(primary, primary)
+                    scalar_chain.append(f"**{primary}** {pname[:45]}")
+                for sid in (aligned_scalars or []):
+                    if sid != primary:
+                        sname = scalar_names.get(sid, sid)
+                        scalar_chain.append(f"{sid} {sname[:40]}")
 
-                    st.markdown(
-                        f"<div style='background:#1a1a2e;border-left:3px solid #4a9eff;"
-                        f"padding:10px 14px;border-radius:4px;margin-bottom:12px;font-size:0.88rem'>"
-                        f"<span style='color:#4a9eff;font-weight:600'>⚡ {h.get('tech_name','')}</span>"
-                        f"<span style='color:#888'> → moves scalars → </span>"
-                        f"<span style='color:#7ec8e3'>{' · '.join(scalar_chain[:4]) or '—'}</span>"
-                        f"<span style='color:#888'> → activates </span>"
-                        f"<span style='color:#90ee90'>{h.get('from_name','?')} → {h.get('to_name','?')}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+                st.markdown(
+                    f"<div style='background:#1a1a2e;border-left:3px solid #4a9eff;"
+                    f"padding:10px 14px;border-radius:4px;margin-bottom:12px;font-size:0.88rem'>"
+                    f"<span style='color:#4a9eff;font-weight:600'>⚡ {h.get('tech_name','')}</span>"
+                    f"<span style='color:#888'> → moves scalars → </span>"
+                    f"<span style='color:#7ec8e3'>{' · '.join(scalar_chain[:4]) or '—'}</span>"
+                    f"<span style='color:#888'> → activates </span>"
+                    f"<span style='color:#90ee90'>{h.get('from_name','?')} → {h.get('to_name','?')}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
                 # ── thesis ──
                 st.markdown("**Thesis**")
@@ -2337,7 +2307,7 @@ elif page == "🧠 Hypotheses":
                 st.divider()
 
                 # ── scalar movements detail ──
-                if not is_legacy and h.get("vid"):
+                if h.get("vid"):
                     _mv = run_query("""
                         MATCH (t:Technology {tech_id: $tid})-[r:MOVES_SCALAR]->(s:Scalar)
                         OPTIONAL MATCH (v:TransformationVector {vector_id: $vid})-[imp:IMPACTS]->(s)
@@ -2514,14 +2484,13 @@ elif page == "🧠 Hypotheses":
                         st.rerun()
 
                 st.divider()
-                if not is_legacy:
-                    st.markdown(f"**Technology**")
-                    st.markdown(h.get("tech_name",""))
-                    if activ is not None:
-                        st.markdown(f"Activation: **{activ:.3f}**")
-                    st.markdown(f"**Primary scalar**")
-                    prim = h.get("primary_scalar") or "—"
-                    st.markdown(f"`{prim}` {scalar_names.get(prim,'')[:40]}")
+                st.markdown(f"**Technology**")
+                st.markdown(h.get("tech_name",""))
+                if activ is not None:
+                    st.markdown(f"Activation: **{activ:.3f}**")
+                st.markdown(f"**Primary scalar**")
+                prim = h.get("primary_scalar") or "—"
+                st.markdown(f"`{prim}` {scalar_names.get(prim,'')[:40]}")
 
 
 # ── Page: Top Opportunities ───────────────────────────────────────────────────
