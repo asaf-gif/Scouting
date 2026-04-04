@@ -1,0 +1,906 @@
+[
+  {
+    "company_id": "COMP_950",
+    "name": "1-800-FLOWERS.COM",
+    "ticker": "FLWS",
+    "description": "1-800-FLOWERS.COM is a leading gifting and floral products company operating multiple consumer brands including Harry & David and Cheryl's Cookies. The company sells through e-commerce, phone orders, and retail channels serving consumers and corporate clients.",
+    "primary_bim_id": "BIM_006",
+    "secondary_bim_ids": [
+      "BIM_016",
+      "BIM_031"
+    ],
+    "primary_industry": "Retail",
+    "secondary_industries": [
+      "Consumer Goods",
+      "Specialty Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_951",
+    "name": "Enhabit",
+    "ticker": "EHAB",
+    "description": "Enhabit is a provider of home health and hospice services operating across numerous locations throughout the United States. The company delivers post-acute care services primarily reimbursed through Medicare and other insurance programs.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_020"
+    ],
+    "primary_industry": "Healthcare",
+    "secondary_industries": [],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_952",
+    "name": "Liberty Latin America",
+    "ticker": "LILA",
+    "description": "Liberty Latin America is a leading telecommunications company providing video, broadband, telephony, and mobile services across Latin America and the Caribbean. The company operates through multiple brands serving residential and business customers via subscription-based models.",
+    "primary_bim_id": "BIM_001",
+    "secondary_bim_ids": [
+      "BIM_016",
+      "BIM_002"
+    ],
+    "primary_industry": "Technology",
+    "secondary_industries": [],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_953",
+    "name": "MillerKnoll",
+    "ticker": "MLKN",
+    "description": "MillerKnoll is a global leader in design and manufacturing of office furniture, home furnishings, and related products formed by the merger of Herman Miller and Knoll. The company sells through dealers, retail channels, and direct to corporate clients under multiple premium brands.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_006",
+      "BIM_016"
+    ],
+    "primary_industry": "Furniture & Home",
+    "secondary_industries": [
+      "Manufacturing",
+      "Business Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_954",
+    "name": "Green Plains",
+    "ticker": "GPRE",
+    "description": "Green Plains is one of the largest producers of fuel-grade ethanol in North America, operating biorefineries and agribusiness assets. The company is transitioning toward producing high-protein animal feed ingredients and clean sugar products alongside traditional ethanol operations.",
+    "primary_bim_id": "BIM_006",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Energy",
+    "secondary_industries": [
+      "Agriculture",
+      "Manufacturing"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_955",
+    "name": "Interface",
+    "ticker": "TILE",
+    "description": "Interface is a global manufacturer of modular flooring products, primarily carpet tiles, sold to commercial customers worldwide. The company differentiates itself through sustainability commitments and a broad product portfolio sold through dealers and direct channels.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_006"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Furniture & Home"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_956",
+    "name": "First Financial Bankshares",
+    "ticker": "FFIN",
+    "description": "First Financial Bankshares is a Texas-based bank holding company providing commercial banking, trust, and financial services through a network of community bank locations. The company serves individuals, businesses, and municipalities primarily across Texas.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_020"
+    ],
+    "primary_industry": "Financial Services",
+    "secondary_industries": [],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_957",
+    "name": "Olympic Steel",
+    "ticker": "ZEUS",
+    "description": "Olympic Steel is a leading U.S. metals service center specializing in the processing and distribution of carbon, coated, and stainless steel and aluminum products. The company serves a diverse range of industrial end markets through processing capabilities and value-added services.",
+    "primary_bim_id": "BIM_006",
+    "secondary_bim_ids": [
+      "BIM_015"
+    ],
+    "primary_industry": "Distribution",
+    "secondary_industries": [
+      "Manufacturing"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_958",
+    "name": "Oil States International",
+    "ticker": "OIS",
+    "description": "Oil States International is a diversified oilfield products and services company providing equipment and services to the oil and gas industry globally. The company operates in completion, production, and offshore segments delivering critical wellbore and subsea solutions.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_009",
+      "BIM_026"
+    ],
+    "primary_industry": "Energy",
+    "secondary_industries": [
+      "Manufacturing"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_959",
+    "name": "Hyster-Yale Materials Handling",
+    "ticker": "HY",
+    "description": "Hyster-Yale Materials Handling is a global manufacturer of lift trucks and related material handling equipment sold under the Hyster and Yale brands. The company also provides aftermarket parts, service, and financing through a worldwide network of dealers.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_007",
+      "BIM_008"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Distribution"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_960",
+    "name": "ScanSource",
+    "ticker": "SCSC",
+    "description": "ScanSource is a value-added distributor of specialty technology products including point-of-sale, barcode, networking, and communications equipment. The company bridges technology vendors and resellers, providing logistics, financing, and technical support services.",
+    "primary_bim_id": "BIM_006",
+    "secondary_bim_ids": [
+      "BIM_015",
+      "BIM_014"
+    ],
+    "primary_industry": "Distribution",
+    "secondary_industries": [
+      "Technology"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_961",
+    "name": "Crawford & Company",
+    "ticker": "CRD",
+    "description": "Crawford & Company is a global provider of claims management and outsourcing solutions serving insurance companies, self-insured entities, and government agencies. The company offers property and casualty claims handling, legal settlement administration, and medical management services.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_020",
+      "BIM_026"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Business Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_962",
+    "name": "Matthews International",
+    "ticker": "MATW",
+    "description": "Matthews International is a diversified company providing memorialization products, brand solutions, and industrial technology products and services globally. Segments include bronze memorialization products, funeral home caskets, brand marking equipment, and warehouse automation.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_015",
+      "BIM_006"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Business Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_963",
+    "name": "Acushnet Holdings",
+    "ticker": "GOLF",
+    "description": "Acushnet Holdings is the global leader in the design, development, and manufacture of golf products under the Titleist and FootJoy brands. The company sells golf balls, clubs, gear, and footwear through on- and off-course retailers and direct-to-consumer channels worldwide.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_006",
+      "BIM_016"
+    ],
+    "primary_industry": "Outdoor & Recreation",
+    "secondary_industries": [
+      "Apparel & Footwear",
+      "Consumer Goods"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_964",
+    "name": "HealthStream",
+    "ticker": "HSTM",
+    "description": "HealthStream provides workforce and provider solutions to the healthcare industry, including learning management, credentialing, and talent management platforms. The company delivers cloud-based SaaS products to hospitals and health systems to improve workforce performance and compliance.",
+    "primary_bim_id": "BIM_005",
+    "secondary_bim_ids": [
+      "BIM_001",
+      "BIM_015"
+    ],
+    "primary_industry": "Healthcare",
+    "secondary_industries": [
+      "Technology"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_965",
+    "name": "Ennis",
+    "ticker": "EBF",
+    "description": "Ennis is a manufacturer and distributor of business forms, labels, promotional products, and related printed materials sold primarily through wholesale print distributors. The company serves a broad range of business customers across the United States.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014",
+      "BIM_006"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Business Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_966",
+    "name": "Resources Connection",
+    "ticker": "RGP",
+    "description": "Resources Connection (RGP) is a professional services firm providing consulting and project-based solutions in areas such as finance, accounting, technology, legal, and supply chain. The company deploys experienced professionals on a flexible, on-demand basis to help organizations manage complex business challenges.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_026"
+    ],
+    "primary_industry": "Business Services",
+    "secondary_industries": [
+      "Staffing"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_967",
+    "name": "ARC Document Solutions",
+    "ticker": "ARC",
+    "description": "ARC Document Solutions provides document and information management services including printing, scanning, and digital content management primarily for the architecture, engineering, and construction industries. The company offers managed print services, cloud-based document management software, and on-site services.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_005",
+      "BIM_001"
+    ],
+    "primary_industry": "Business Services",
+    "secondary_industries": [
+      "Technology"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_968",
+    "name": "Quad/Graphics",
+    "ticker": "QUAD",
+    "description": "Quad/Graphics is a large-scale marketing solutions and commercial printing company serving consumer and business clients across North America and internationally. The company provides print, media, and integrated marketing services including packaging, direct mail, and digital media.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_026",
+      "BIM_006"
+    ],
+    "primary_industry": "Business Services",
+    "secondary_industries": [
+      "Manufacturing"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_969",
+    "name": "SpartanNash",
+    "ticker": "SPTN",
+    "description": "SpartanNash is a food distribution and retail company that distributes grocery products to independent retailers and military commissaries while also operating its own retail supermarket stores. The company serves as one of the largest wholesale grocery distributors in the United States.",
+    "primary_bim_id": "BIM_006",
+    "secondary_bim_ids": [
+      "BIM_009",
+      "BIM_016"
+    ],
+    "primary_industry": "Distribution",
+    "secondary_industries": [
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_970",
+    "name": "Healthcare Services Group",
+    "ticker": "HCSG",
+    "description": "Healthcare Services Group provides housekeeping, laundry, linen, facility maintenance, and dietary services to healthcare facilities such as nursing homes and assisted living communities. The company operates as an outsourced services provider under long-term management agreements.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_001"
+    ],
+    "primary_industry": "Healthcare",
+    "secondary_industries": [
+      "Business Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_971",
+    "name": "Kelly Services",
+    "ticker": "KELYA",
+    "description": "Kelly Services is a global workforce solutions company providing temporary staffing, direct-hire placement, and outsourced workforce management across multiple industries. The company specializes in science, engineering, technology, education, and professional sectors.",
+    "primary_bim_id": "BIM_015",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Staffing",
+    "secondary_industries": [
+      "Business Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_972",
+    "name": "LSI Industries",
+    "ticker": "LYTS",
+    "description": "LSI Industries is a manufacturer and seller of lighting and display solutions for retail, commercial, and industrial applications. The company provides turnkey solutions including graphics, menu boards, and lighting systems to convenience stores, restaurants, and petroleum retailers.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_026",
+      "BIM_015"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Business Services",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_973",
+    "name": "Sturm Ruger",
+    "ticker": "RGR",
+    "description": "Sturm Ruger is one of the leading manufacturers of firearms in the United States, producing pistols, revolvers, rifles, and shotguns under the Ruger brand. The company sells its products through a network of independent wholesalers to retailers and ultimately to end consumers.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_006"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Outdoor & Recreation"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_974",
+    "name": "Central Garden & Pet",
+    "ticker": "CENT",
+    "description": "Central Garden & Pet is a leading manufacturer and distributor of branded products for the lawn, garden, and pet markets in the United States. The company offers a wide portfolio of products including grass seed, pest control, aquatics, and pet food sold through mass retailers, e-commerce, and specialty channels.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_006",
+      "BIM_016"
+    ],
+    "primary_industry": "Consumer Goods",
+    "secondary_industries": [
+      "Agriculture",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_975",
+    "name": "Steelcase",
+    "ticker": "SCS",
+    "description": "Steelcase is a leading global manufacturer of office furniture, architectural products, and technology solutions for workplaces. The company serves corporations, healthcare organizations, and educational institutions through a dealer network worldwide.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_008",
+      "BIM_016"
+    ],
+    "primary_industry": "Furniture & Home",
+    "secondary_industries": [
+      "Manufacturing",
+      "Business Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_976",
+    "name": "Movado Group",
+    "ticker": "MOV",
+    "description": "Movado Group designs, sources, and distributes watches under owned and licensed brands including Movado, Ebel, Concord, and Coach. The company sells through department stores, jewelry retailers, and its own e-commerce channels globally.",
+    "primary_bim_id": "BIM_012",
+    "secondary_bim_ids": [
+      "BIM_009",
+      "BIM_006"
+    ],
+    "primary_industry": "Consumer Goods",
+    "secondary_industries": [
+      "Retail",
+      "Apparel & Footwear"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_977",
+    "name": "American Woodmark",
+    "ticker": "AMWD",
+    "description": "American Woodmark Corporation manufactures and distributes kitchen and bath cabinets for the remodeling and new home construction markets. The company sells through major home improvement retailers and a network of builder service centers across the United States.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Furniture & Home",
+      "Distribution"
+    ],
+    "hq_country": "USA",
+    "employee_range": "10000+",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_978",
+    "name": "WD-40 Company",
+    "ticker": "WDFC",
+    "description": "WD-40 Company develops and sells maintenance products, homecare, and cleaning products under the iconic WD-40 brand and other labels. The company distributes its products through hardware stores, home improvement centers, and industrial distributors worldwide.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_031"
+    ],
+    "primary_industry": "Consumer Goods",
+    "secondary_industries": [
+      "Manufacturing",
+      "Distribution"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_979",
+    "name": "MarineMax",
+    "ticker": "HZO",
+    "description": "MarineMax is the largest recreational boat and yacht retailer in the United States, selling new and used boats from leading manufacturers. The company also provides related services including financing, insurance, storage, and yacht charter management.",
+    "primary_bim_id": "BIM_006",
+    "secondary_bim_ids": [
+      "BIM_015",
+      "BIM_001"
+    ],
+    "primary_industry": "Specialty Retail",
+    "secondary_industries": [
+      "Outdoor & Recreation",
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "B+"
+  },
+  {
+    "company_id": "COMP_980",
+    "name": "Bassett Furniture Industries",
+    "ticker": "BSET",
+    "description": "Bassett Furniture Industries manufactures and retails home furnishings through its own retail stores and third-party dealers across the United States. The company is known for its custom-order furniture program and operates a network of Bassett Home Furnishings stores.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_008"
+    ],
+    "primary_industry": "Furniture & Home",
+    "secondary_industries": [
+      "Manufacturing",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_981",
+    "name": "Flexsteel Industries",
+    "ticker": "FLXS",
+    "description": "Flexsteel Industries manufactures and distributes a broad line of upholstered furniture products for residential and commercial markets. The company sells through independent retailers, hospitality, and healthcare channels, and is known for its patented Blue Steel Spring comfort system.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014"
+    ],
+    "primary_industry": "Furniture & Home",
+    "secondary_industries": [
+      "Manufacturing",
+      "Distribution"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_982",
+    "name": "Hooker Furnishings",
+    "ticker": "HOFT",
+    "description": "Hooker Furnishings Corporation designs, imports, and markets residential home furnishings including wood and metal furniture under multiple brand names. The company sells through interior designers, retailers, and e-commerce channels and also operates home office and youth furniture segments.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_031"
+    ],
+    "primary_industry": "Furniture & Home",
+    "secondary_industries": [
+      "Manufacturing",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_983",
+    "name": "Citi Trends",
+    "ticker": "CTRN",
+    "description": "Citi Trends is a value-priced retailer of urban fashion apparel, accessories, and home goods, primarily serving African-American consumers. The company operates stores mainly in the southeastern United States and competes on low price points and trend-relevant merchandise.",
+    "primary_bim_id": "BIM_033",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Apparel & Footwear",
+    "secondary_industries": [
+      "Specialty Retail",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_984",
+    "name": "Tile Shop Holdings",
+    "ticker": "TTS",
+    "description": "Tile Shop Holdings operates specialty retail stores selling natural stone and manufactured tiles, setting and maintenance materials, and related accessories. The company targets both professional contractors and do-it-yourself consumers through showroom locations across the United States.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_031"
+    ],
+    "primary_industry": "Specialty Retail",
+    "secondary_industries": [
+      "Furniture & Home",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_985",
+    "name": "Destination XL Group",
+    "ticker": "DXLG",
+    "description": "Destination XL Group is the largest specialty retailer of big and tall men's clothing in the United States, operating under the DXL and Casual Male XL brands. The company sells through its retail stores, outlet locations, and e-commerce platform.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_006"
+    ],
+    "primary_industry": "Apparel & Footwear",
+    "secondary_industries": [
+      "Specialty Retail",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_986",
+    "name": "Rocky Brands",
+    "ticker": "RCKY",
+    "description": "Rocky Brands designs, manufactures, and markets premium quality footwear and apparel under brands including Rocky, Georgia Boot, Durango, and Lehigh. The company serves military, work, outdoor, and western markets through wholesale, retail, and direct-to-consumer channels.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014"
+    ],
+    "primary_industry": "Apparel & Footwear",
+    "secondary_industries": [
+      "Manufacturing",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_987",
+    "name": "Vera Bradley",
+    "ticker": "VRA",
+    "description": "Vera Bradley designs and sells handbags, luggage, travel accessories, and gifts featuring distinctive colorful patterns targeting women consumers. The company operates through its own retail and factory outlet stores, e-commerce, and indirect wholesale channels.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_006"
+    ],
+    "primary_industry": "Apparel & Footwear",
+    "secondary_industries": [
+      "Specialty Retail",
+      "Consumer Goods"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_988",
+    "name": "Superior Group of Companies",
+    "ticker": "SGC",
+    "description": "Superior Group of Companies provides branded products including uniforms, promotional products, healthcare apparel, and branded merchandise to businesses across various industries. The company operates through three segments: Uniforms and Related Products, Remote Staffing Solutions, and Promotional Products.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014",
+      "BIM_015"
+    ],
+    "primary_industry": "Apparel & Footwear",
+    "secondary_industries": [
+      "Business Services",
+      "Staffing"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_989",
+    "name": "Delta Apparel",
+    "ticker": "DLA",
+    "description": "Delta Apparel is a manufacturer and marketer of branded and private label activewear and lifestyle apparel products sold under the Delta Pro Weight, Soffe, and Salt Life brands. The company sells through wholesale channels, its own retail stores, and direct-to-consumer e-commerce.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014"
+    ],
+    "primary_industry": "Apparel & Footwear",
+    "secondary_industries": [
+      "Manufacturing",
+      "Retail"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_990",
+    "name": "Jerash Holdings",
+    "ticker": "JRSH",
+    "description": "Jerash Holdings International manufactures and exports customized, ready-made sportswear and outerwear from its facilities in Jordan to global brands and retailers. The company's primary customers include major US and international apparel brands seeking value-oriented contract manufacturing.",
+    "primary_bim_id": "BIM_014",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Apparel & Footwear",
+    "secondary_industries": [
+      "Manufacturing"
+    ],
+    "hq_country": "USA",
+    "employee_range": "2000-10000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_991",
+    "name": "Lakeland Industries",
+    "ticker": "LAKE",
+    "description": "Lakeland Industries manufactures and sells a comprehensive line of industrial protective clothing for use by workers in hazardous environments. The company markets its products globally under the Lakeland brand to industries including chemical, petrochemical, utilities, and emergency response.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Apparel & Footwear",
+      "Distribution"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_992",
+    "name": "Alpha Pro Tech",
+    "ticker": "APT",
+    "description": "Alpha Pro Tech manufactures and markets disposable protective apparel, infection control products, and building products used in healthcare, industrial, and construction applications. The company serves healthcare facilities, construction companies, and industrial users with its masks, face shields, and cleanroom products.",
+    "primary_bim_id": "BIM_009",
+    "secondary_bim_ids": [
+      "BIM_014"
+    ],
+    "primary_industry": "Manufacturing",
+    "secondary_industries": [
+      "Healthcare",
+      "Consumer Goods"
+    ],
+    "hq_country": "USA",
+    "employee_range": "1-500",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_993",
+    "name": "Donegal Group",
+    "ticker": "DGICA",
+    "description": "Donegal Group is a regional property and casualty insurance holding company offering personal and commercial lines of insurance primarily in the Mid-Atlantic, Midwestern, New England, and Southern states. The company distributes its products through a network of independent insurance agencies.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_994",
+    "name": "Kingstone Companies",
+    "ticker": "KINS",
+    "description": "Kingstone Companies is a regional property and casualty insurance holding company that underwrites personal and commercial lines insurance primarily in New York and surrounding states. The company distributes its insurance products through independent agents and brokers.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "1-500",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_995",
+    "name": "Hallmark Financial Services",
+    "ticker": "HALL",
+    "description": "Hallmark Financial Services is a specialty insurance holding company that underwrites, markets, and administers property and casualty insurance products to businesses and individuals. The company operates through retail commercial lines, E&S commercial lines, and personal lines segments.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_015"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_996",
+    "name": "Global Indemnity Group",
+    "ticker": "GBLI",
+    "description": "Global Indemnity Group is a specialty insurance holding company providing property and casualty coverage for niche markets including small to mid-size businesses and specialty personal lines. The company operates through independent agents and wholesale brokers across the United States.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_997",
+    "name": "Safety Insurance Group",
+    "ticker": "SAFT",
+    "description": "Safety Insurance Group is a property and casualty insurance company focused primarily on the Massachusetts personal lines market, offering automobile, homeowners, and commercial insurance products. The company distributes exclusively through a network of independent insurance agents.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_998",
+    "name": "United Fire Group",
+    "ticker": "UFCS",
+    "description": "United Fire Group is a regional insurance holding company offering property and casualty insurance products to commercial and personal lines customers across the United States. The company distributes its products through independent agents and also operates a life insurance segment.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_999",
+    "name": "Employers Holdings",
+    "ticker": "EIG",
+    "description": "Employers Holdings is a specialty insurance holding company focused on workers' compensation insurance products for small businesses in low to medium hazard industries. The company distributes its products through independent agents, brokers, and strategic partnerships across the United States.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_009"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "M-B"
+  },
+  {
+    "company_id": "COMP_1000",
+    "name": "National Western Life Group",
+    "ticker": "NWLI",
+    "description": "National Western Life Group is a life insurance holding company offering life insurance and annuity products to domestic and international markets. The company focuses on long-term savings and protection products distributed through independent agents and brokers.",
+    "primary_bim_id": "BIM_020",
+    "secondary_bim_ids": [
+      "BIM_001"
+    ],
+    "primary_industry": "Insurance",
+    "secondary_industries": [
+      "Financial Services"
+    ],
+    "hq_country": "USA",
+    "employee_range": "500-2000",
+    "revenue_range": "B+"
+  }
+]

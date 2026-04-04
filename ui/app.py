@@ -41,8 +41,8 @@ st.sidebar.divider()
 page = st.sidebar.radio(
     "Navigate",
     ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
-     "⚡ Scalars", "🔬 Technologies", "🧠 Hypotheses", "📋 Input Review Queue",
-     "📊 Graph Overview", "📈 Top Opportunities",
+     "⚡ Scalars", "🔬 Technologies", "🧠 Hypotheses", "🏢 Companies",
+     "📋 Input Review Queue", "📊 Graph Overview", "📈 Top Opportunities",
      "🔬 Validation Review", "📝 Editorial Queue", "🔄 Pipeline Monitor"],
 )
 
@@ -1936,6 +1936,220 @@ Return ONLY a JSON object with these fields (use null for fields you cannot dete
             } for e in reversed(all_tech_log)], use_container_width=True, hide_index=True)
     else:
         st.caption("No changes logged yet.")
+
+
+# ── Page: Companies ───────────────────────────────────────────────────────────
+
+elif page == "🏢 Companies":
+    st.title("🏢 Company Database")
+    st.caption("Companies tagged to their business models, industries, and evidence in the graph.")
+
+    # ── filters ──
+    cf1, cf2, cf3, cf4 = st.columns([3, 2, 2, 1])
+    with cf1:
+        co_search = st.text_input("Search", placeholder="company name, description…",
+                                  label_visibility="collapsed")
+    with cf2:
+        _bim_opts = run_query("MATCH (b:BusinessModel) RETURN b.bim_id AS id, b.name AS name ORDER BY b.bim_id") or []
+        bim_filter_map = {"All business models": None}
+        for b in _bim_opts:
+            bim_filter_map[f"{b['id']}: {b['name']}"] = b["id"]
+        co_bim_sel = st.selectbox("Business model", list(bim_filter_map.keys()),
+                                  label_visibility="collapsed")
+    with cf3:
+        _ind_opts = run_query("""
+            MATCH (c:Company) RETURN DISTINCT c.primary_industry AS ind ORDER BY ind
+        """) or []
+        industry_opts = ["All industries"] + [r["ind"] for r in _ind_opts if r.get("ind")]
+        co_ind = st.selectbox("Industry", industry_opts, label_visibility="collapsed")
+    with cf4:
+        co_sort = st.selectbox("Sort", ["Name", "Revenue", "Evidence links"],
+                               label_visibility="collapsed")
+
+    # ── build query ──
+    co_where = []
+    co_params: dict = {}
+    selected_bim = bim_filter_map[co_bim_sel]
+    if selected_bim:
+        co_where.append("EXISTS((c)-[:OPERATES_AS]->(:BusinessModel {bim_id: $bim_id}))")
+        co_params["bim_id"] = selected_bim
+    if co_ind != "All industries":
+        co_where.append("c.primary_industry = $industry")
+        co_params["industry"] = co_ind
+
+    co_where_clause = ("WHERE " + " AND ".join(co_where)) if co_where else ""
+    co_sort_clause = {
+        "Name": "ORDER BY c.name",
+        "Revenue": "ORDER BY c.revenue_range DESC, c.name",
+        "Evidence links": "ORDER BY evidence_count DESC, c.name",
+    }[co_sort]
+
+    companies_data = run_query(f"""
+        MATCH (c:Company)
+        {co_where_clause}
+        WITH c, size([(c)-[:HAS_EVIDENCE]->() | 1]) AS evidence_count
+        OPTIONAL MATCH (c)-[r_bim:OPERATES_AS]->(b:BusinessModel)
+        WITH c, evidence_count,
+             collect({{bim_id: b.bim_id, name: b.name, is_primary: r_bim.is_primary}}) AS bims
+        RETURN c.company_id       AS cid,
+               c.name             AS name,
+               c.ticker           AS ticker,
+               c.description      AS description,
+               c.primary_industry AS industry,
+               c.secondary_industries AS secondary_industries,
+               c.employee_range   AS employees,
+               c.revenue_range    AS revenue,
+               c.hq_country       AS country,
+               c.updated_at       AS updated_at,
+               evidence_count,
+               bims
+        {co_sort_clause}
+    """, **co_params) or []
+
+    if co_search:
+        q = co_search.lower()
+        companies_data = [c for c in companies_data if
+                          q in (c.get("name") or "").lower() or
+                          q in (c.get("description") or "").lower() or
+                          q in (c.get("industry") or "").lower()]
+
+    st.markdown(f"**{len(companies_data)} companies**")
+
+    if not companies_data:
+        st.info("No companies found. Adjust filters or import via scripts/import_companies.py")
+    else:
+        for co in companies_data:
+            cid  = co["cid"]
+            name = co["name"] or ""
+            evn  = co.get("evidence_count") or 0
+            bims = co.get("bims") or []
+            primary_bim = next((b for b in bims if b.get("is_primary")), None)
+            other_bims  = [b for b in bims if not b.get("is_primary")]
+
+            bim_label = primary_bim["name"] if primary_bim else "—"
+            ev_badge  = f"  ·  📎 {evn} case {'study' if evn == 1 else 'studies'}" if evn else ""
+
+            with st.expander(f"**{name}**  ·  {co.get('ticker','') or ''}  ·  {bim_label}{ev_badge}"):
+                left, right = st.columns([3, 1])
+
+                with left:
+                    st.markdown(co.get("description") or "_No description yet._")
+                    inds = [co.get("industry") or ""] + (co.get("secondary_industries") or [])
+                    inds = [i for i in inds if i]
+                    st.caption(
+                        f"🏭 {' · '.join(inds)}  |  "
+                        f"👥 {co.get('employees','—')}  |  "
+                        f"💰 {co.get('revenue','—')}  |  "
+                        f"🌍 {co.get('country','USA')}"
+                    )
+
+                    # business models
+                    st.markdown("**Business models**")
+                    if bims:
+                        bm_cols = st.columns(min(len(bims), 3))
+                        for i, b in enumerate(bims):
+                            tag = "🔵 Primary" if b.get("is_primary") else "⚪ Secondary"
+                            bm_cols[i % 3].markdown(f"{tag}  \n`{b['bim_id']}` {b.get('name','')}")
+                    else:
+                        st.caption("No business models linked yet.")
+
+                    # evidence
+                    if evn:
+                        st.divider()
+                        st.markdown(f"**📎 Case studies ({evn})**")
+                        _evidence = run_query("""
+                            MATCH (co:Company {company_id: $cid})-[:HAS_EVIDENCE]->(e:Evidence)
+                            MATCH (e)-[:SUPPORTS]->(v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
+                            MATCH (v)-[:TO_BIM]->(t:BusinessModel)
+                            RETURN e.transition_summary AS summary,
+                                   e.source_url AS url,
+                                   f.name AS from_bm, t.name AS to_bm
+                            LIMIT 5
+                        """, cid=cid) or []
+                        for ev in _evidence:
+                            st.markdown(
+                                f"→ **{ev.get('from_bm','?')} → {ev.get('to_bm','?')}**  \n"
+                                f"{ev.get('summary','')[:120]}"
+                                + (f"  \n[Source]({ev['url']})" if ev.get("url") else "")
+                            )
+
+                    # disruption exposure
+                    if primary_bim:
+                        _vectors = run_query("""
+                            MATCH (v:TransformationVector)-[:FROM_BIM]->(b:BusinessModel {bim_id: $bid})
+                            MATCH (v)-[:TO_BIM]->(t:BusinessModel)
+                            OPTIONAL MATCH (tech:Technology)-[act:ACTIVATES]->(v)
+                            WITH v, t, tech, act
+                            ORDER BY act.activation_score DESC
+                            WITH v, t, head(collect({tech: tech.name, score: act.activation_score})) AS top_tech
+                            WHERE top_tech.score >= 0.5
+                            RETURN t.name AS to_bm, top_tech.tech AS tech_name,
+                                   top_tech.score AS activation_score
+                            ORDER BY activation_score DESC
+                            LIMIT 4
+                        """, bid=primary_bim["bim_id"]) or []
+                        if _vectors:
+                            st.divider()
+                            st.markdown("**⚠️ Disruption exposure** (from primary BM)")
+                            for dv in _vectors:
+                                score = dv.get("activation_score") or 0
+                                color = "🔴" if score >= 0.8 else "🟡"
+                                st.markdown(
+                                    f"{color} → **{dv.get('to_bm','?')}**  "
+                                    f"·  ⚡ {dv.get('tech_name','?')}  "
+                                    f"·  activation={score:.2f}"
+                                )
+
+                with right:
+                    st.metric("Ticker", co.get("ticker") or "—")
+                    st.metric("Revenue", co.get("revenue") or "—")
+                    st.metric("Employees", co.get("employees") or "—")
+                    st.metric("Case studies", str(evn))
+
+                    co_edit_key = f"co_edit_{cid}"
+                    if co_edit_key not in st.session_state:
+                        st.session_state[co_edit_key] = False
+                    if st.button("✏️ Edit", key=f"co_edit_btn_{cid}"):
+                        st.session_state[co_edit_key] = not st.session_state[co_edit_key]
+
+                    if st.session_state[co_edit_key]:
+                        with st.form(key=f"co_edit_form_{cid}"):
+                            new_desc = st.text_area("Description",
+                                                    value=co.get("description") or "", height=100)
+                            new_ind  = st.text_input("Primary industry",
+                                                     value=co.get("industry") or "")
+                            new_rev  = st.selectbox("Revenue range",
+                                ["<$100M","$100M-$500M","$500M-$2B","$2B+"],
+                                index=["<$100M","$100M-$500M","$500M-$2B","$2B+"].index(
+                                    co.get("revenue","<$100M"))
+                                    if co.get("revenue") in ["<$100M","$100M-$500M","$500M-$2B","$2B+"] else 0)
+                            if st.form_submit_button("💾 Save"):
+                                now_str = datetime.now(timezone.utc).isoformat()
+                                run_query("""
+                                    MATCH (c:Company {company_id: $cid})
+                                    SET c.description = $desc,
+                                        c.primary_industry = $ind,
+                                        c.revenue_range = $rev,
+                                        c.updated_at = $now,
+                                        c.edited_by = 'human_ui'
+                                """, cid=cid, desc=new_desc, ind=new_ind,
+                                    rev=new_rev, now=now_str)
+                                try:
+                                    os.makedirs("data", exist_ok=True)
+                                    with open("data/company_changelog.jsonl", "a") as _f:
+                                        _f.write(json.dumps({
+                                            "timestamp": now_str, "company_id": cid,
+                                            "name": name, "changes": {
+                                                "description": new_desc,
+                                                "industry": new_ind,
+                                                "revenue": new_rev,
+                                            }, "edited_by": "human_ui",
+                                        }) + "\n")
+                                except Exception:
+                                    pass
+                                st.success("Saved")
+                                st.session_state[co_edit_key] = False
+                                st.rerun()
 
 
 # ── Page: Graph Overview ──────────────────────────────────────────────────────
