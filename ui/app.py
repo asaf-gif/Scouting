@@ -638,14 +638,14 @@ elif page == "🔀 Transition Case Studies":
                 st.divider()
 
                 # ── Edit story toggle ──────────────────────────────────────────
-                ev_edit_key = f"show_ev_edit_{eid}"
+                ev_edit_key = f"show_ev_edit_{vid}_{eid}"
                 if ev_edit_key not in st.session_state:
                     st.session_state[ev_edit_key] = False
-                if st.button("✏️ Edit story", key=f"btn_ev_edit_{eid}"):
+                if st.button("✏️ Edit story", key=f"btn_ev_edit_{vid}_{eid}"):
                     st.session_state[ev_edit_key] = not st.session_state[ev_edit_key]
 
                 if st.session_state[ev_edit_key]:
-                    with st.form(key=f"tc_edit_{eid}"):
+                    with st.form(key=f"tc_edit_{vid}_{eid}"):
                         new_companies = st.text_input(
                             "Companies involved (comma-separated)", value=", ".join(companies)
                         )
@@ -732,8 +732,8 @@ elif page == "🔀 Transition Case Studies":
                             color = "green" if score and score > 0 else "red"
                             st.markdown(f":{color}[**{strength}** ({'+' if score and score > 0 else ''}{score})]")
 
-                    # Scalar edit toggle (keyed on vid — shared across evidence nodes for same vector)
-                    sc_edit_key = f"show_sc_edit_{vid}"
+                    # Scalar edit toggle — keyed on vid+eid so each card is independent
+                    sc_edit_key = f"show_sc_edit_{vid}_{eid}"
                     if sc_edit_key not in st.session_state:
                         st.session_state[sc_edit_key] = False
                     # Use vid+eid to give each card its own button key
