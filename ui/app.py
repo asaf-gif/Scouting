@@ -42,7 +42,7 @@ page = st.sidebar.radio(
     "Navigate",
     ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
      "⚡ Scalars", "🔬 Technologies", "🧠 Hypotheses", "🏢 Companies",
-     "📋 Input Review Queue", "📊 Graph Overview", "📈 Top Opportunities",
+     "📋 Input Review Queue", "📊 Graph Overview",
      "🔬 Validation Review", "📝 Editorial Queue", "🔄 Pipeline Monitor"],
 )
 
@@ -203,7 +203,6 @@ if page == "📚 BM Library":
                            t.name            AS to_name,
                            t.bim_id          AS to_id,
                            v.signal_strength AS signal,
-                           v.opportunity_score AS opp_score,
                            ev_count,
                            h.hypothesis_id   AS hyp_id,
                            h.conviction_score AS conviction,
@@ -217,7 +216,6 @@ if page == "📚 BM Library":
                     st.caption(f"{len(all_vectors)} transition paths recorded")
                     for vrow in all_vectors:
                         sig   = vrow.get("signal") or 0
-                        opp   = vrow.get("opp_score") or 0
                         ev_n  = vrow.get("ev_count") or 0
                         sig_bar = "█" * int(sig * 10) + "░" * (10 - int(sig * 10))
 
@@ -227,7 +225,6 @@ if page == "📚 BM Library":
                             c1.caption(f"`{vrow['vector_id']}`")
                             c2.markdown(f"Signal: `{sig:.3f}`")
                             c2.caption(sig_bar)
-                            c3.markdown(f"Opportunity: `{opp:.3f}`")
                             c3.caption(f"{ev_n} evidence node{'s' if ev_n != 1 else ''}")
                             if vrow.get("hyp_id"):
                                 c4.markdown(f"💡 Hypothesis")
@@ -548,7 +545,6 @@ elif page == "🔀 Transition Case Studies":
                e.extracted_at         AS extracted_at,
                v.vector_id            AS vid,
                v.signal_strength      AS signal,
-               v.opportunity_score    AS opp,
                f.name                 AS from_bm,
                f.bim_id               AS from_id,
                t.name                 AS to_bm,
@@ -597,7 +593,6 @@ elif page == "🔀 Transition Case Studies":
             eid     = case.get("eid") or ""
             vid     = case.get("vid") or ""
             signal  = case.get("signal") or 0
-            opp     = case.get("opp") or 0
             conf    = case.get("conf") or 0
             has_hyp = bool(case.get("hyp_id"))
 
@@ -891,7 +886,7 @@ elif page == "📐 Transformations":
         tv_has_evidence = st.checkbox("Evidence only", value=True, key="tv_has_evidence",
                                       help="Only show transformations that have at least one evidence node")
     with fcol3:
-        tv_sort = st.selectbox("Sort by", ["Signal strength", "Opportunity score", "Evidence count"], key="tv_sort")
+        tv_sort = st.selectbox("Sort by", ["Signal strength", "Evidence count"], key="tv_sort")
     with fcol4:
         tv_from_bms = run_query("MATCH (f:BusinessModel) RETURN f.name AS name ORDER BY f.name")
         tv_from_opts = ["All"] + [r["name"] for r in tv_from_bms]
@@ -902,9 +897,8 @@ elif page == "📐 Transformations":
     tv_evidence_filter = "AND evidence_count > 0" if tv_has_evidence else ""
 
     tv_sort_clause = {
-        "Signal strength":   "ORDER BY v.signal_strength DESC",
-        "Opportunity score": "ORDER BY v.opportunity_score DESC",
-        "Evidence count":    "ORDER BY evidence_count DESC",
+        "Signal strength": "ORDER BY v.signal_strength DESC",
+        "Evidence count":  "ORDER BY evidence_count DESC",
     }[tv_sort]
 
     transformations = run_query(f"""
@@ -919,7 +913,6 @@ elif page == "📐 Transformations":
         WITH v, f, t, evidence_count, scalar_count, head(collect(h)) AS h
         RETURN v.vector_id          AS vid,
                v.signal_strength    AS signal,
-               v.opportunity_score  AS opp,
                v.description        AS description,
                v.example_text       AS example_text,
                f.name               AS from_bm,
@@ -963,7 +956,6 @@ elif page == "📐 Transformations":
     for tr in transformations:
         vid      = tr.get("vid") or ""
         signal   = tr.get("signal") or 0
-        opp      = tr.get("opp") or 0
         ev_count = tr.get("evidence_count") or 0
         sc_count = tr.get("scalar_count") or 0
         has_hyp  = bool(tr.get("hyp_id"))
@@ -972,11 +964,10 @@ elif page == "📐 Transformations":
         with st.expander(label, expanded=False):
             st.markdown(f"<u>**{tr['from_bm']} → {tr['to_bm']}**</u>", unsafe_allow_html=True)
 
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3 = st.columns(3)
             m1.metric("Signal", f"{signal:.3f}")
-            m2.metric("Opp score", f"{opp:.3f}" if opp else "—")
-            m3.metric("Evidence", ev_count)
-            m4.metric("Scalars", sc_count)
+            m2.metric("Evidence", ev_count)
+            m3.metric("Scalars", sc_count)
 
             # General description (editable, separate from example)
             desc = tr.get("description") or ""
@@ -3004,68 +2995,6 @@ elif page == "🧠 Hypotheses":
                 prim = h.get("primary_scalar") or "—"
                 st.markdown(f"`{prim}` {scalar_names.get(prim,'')[:40]}")
 
-
-# ── Page: Top Opportunities ───────────────────────────────────────────────────
-
-elif page == "📈 Top Opportunities":
-    st.title("Top Opportunities")
-    st.caption("TransformationVectors ranked by composite opportunity score.")
-
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        top_n = st.slider("Show top N", 5, 50, 20)
-        min_tech = st.number_input("Min tech score", 0, 15, 0)
-
-    opportunities = run_query(f"""
-        MATCH (v:TransformationVector)
-        WHERE v.opportunity_score IS NOT NULL
-        MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
-        MATCH (v)-[:TO_BIM]->(t:BusinessModel)
-        WHERE coalesce(v.best_tech_score, 0) >= {min_tech}
-        OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
-        WITH v, f, t, head(collect(h)) AS h
-        RETURN v.vector_id        AS vid,
-               f.name             AS from_name,
-               t.name             AS to_name,
-               v.opportunity_score AS opp,
-               v.signal_strength  AS signal,
-               v.best_tech_score  AS tech,
-               v.best_conviction  AS conviction,
-               v.scalar_alignment AS alignment,
-               h.title            AS hyp_title,
-               v.tech_score_kggen AS kggen,
-               v.tech_score_gnns  AS gnns,
-               v.tech_score_synthetic AS synth
-        ORDER BY v.opportunity_score DESC
-        LIMIT {top_n}
-    """)
-
-    if not opportunities:
-        st.info("No ranked opportunities yet. Run `python analysis/opportunity_ranker.py` first.")
-    else:
-        for i, o in enumerate(opportunities, 1):
-            opp = o.get("opp") or 0
-            color = "🟢" if opp >= 0.30 else ("🟡" if opp >= 0.15 else "⚪")
-            with st.expander(
-                f"{color} #{i} **{o['from_name']} → {o['to_name']}**  "
-                f"·  score={opp:.4f}"
-            ):
-                cols = st.columns(5)
-                cols[0].metric("Opp Score", f"{opp:.4f}")
-                cols[1].metric("Signal", f"{o.get('signal') or 0:.3f}")
-                cols[2].metric("Best Tech", str(o.get("tech") or 0))
-                cols[3].metric("Conviction", f"{o.get('conviction') or 0:.2f}")
-                cols[4].metric("Scalar Align", f"{o.get('alignment') or 0:.2f}")
-
-                st.markdown(
-                    f"**Tech scores:** GNNs={o.get('gnns') or 0}  "
-                    f"KGGen={o.get('kggen') or 0}  Synthetic={o.get('synth') or 0}"
-                )
-                if o.get("hyp_title"):
-                    st.markdown(f"**Hypothesis:** {o['hyp_title']}")
-                st.caption(o["vid"])
-
-
 # ── Page: Validation Review ───────────────────────────────────────────────────
 
 elif page == "🔬 Validation Review":
@@ -3427,21 +3356,6 @@ elif page == "🔄 Pipeline Monitor":
             """)
             if hyp_stats:
                 st.dataframe(hyp_stats, use_container_width=True)
-
-            st.subheader("Top 5 Opportunities")
-            top_opps = run_query("""
-                MATCH (v:TransformationVector)
-                WHERE v.opportunity_score IS NOT NULL
-                MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
-                MATCH (v)-[:TO_BIM]->(t:BusinessModel)
-                RETURN f.name AS from_name, t.name AS to_name,
-                       round(v.opportunity_score, 4) AS opp_score,
-                       round(v.signal_strength, 4) AS signal
-                ORDER BY v.opportunity_score DESC
-                LIMIT 5
-            """)
-            if top_opps:
-                st.dataframe(top_opps, use_container_width=True)
 
         with tab_errors:
             try:
