@@ -38,6 +38,12 @@ from rich.table import Table
 load_dotenv(override=True)
 console = Console(width=200)
 
+try:
+    from core import error_log, version_control, snapshot as snap_module
+    _CORE_AVAILABLE = True
+except ImportError:
+    _CORE_AVAILABLE = False
+
 ALL_STAGES = ["scan", "aggregate", "trends", "rank", "monitor", "research", "score", "health"]
 
 
@@ -255,6 +261,13 @@ def run_pipeline(stages: list = None, dry_run: bool = False,
     if dry_run:
         console.print("  [yellow]DRY RUN — no writes[/yellow]")
 
+    # Pre-run snapshot
+    if _CORE_AVAILABLE and not dry_run:
+        label = "_".join(stages) if len(stages) <= 4 else f"{stages[0]}_plus_{len(stages)-1}"
+        snap = snap_module.take_snapshot(label=f"pre_{label}")
+        if "error" not in snap:
+            console.print(f"  [dim]Snapshot taken: pre_{label}[/dim]")
+
     results = {}
     errors  = {}
 
@@ -283,12 +296,24 @@ def run_pipeline(stages: list = None, dry_run: bool = False,
             console.print(f"  [red]Stage {stage} failed: {err_msg}[/red]")
             console.print(traceback.format_exc())
             table.add_row(stage, "[red]FAILED[/red]", err_msg[:60])
+            if _CORE_AVAILABLE:
+                error_log.log_error("orchestrator.pipeline", f"stage_{stage}", e,
+                                    context={"stage": stage, "dry_run": dry_run})
 
     completed_at = datetime.now(timezone.utc).isoformat()
     console.print(f"\n")
     console.print(table)
 
     success = len(errors) == 0
+
+    # Auto-commit code if successful
+    if _CORE_AVAILABLE and success and not dry_run:
+        commit_result = version_control.git_commit_if_changed(
+            f"Auto: pipeline {','.join(stages)}"
+        )
+        if commit_result.get("committed"):
+            console.print(f"  [dim]Code committed: {commit_result['sha']} — {commit_result['message']}[/dim]")
+
     color = "green" if success else "red"
     console.print(Panel(
         f"Stages run:  {len(results)}/{len(stages)}\n"

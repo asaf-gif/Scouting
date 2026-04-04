@@ -1482,44 +1482,147 @@ elif page == "🔄 Pipeline Monitor":
                     "Val":      q.get("validation_score"),
                 } for q in report["queue"]])
 
+        st.divider()
+        if st.button("📸 Take snapshot", help="Save a JSON snapshot of current graph state"):
+            try:
+                from core.snapshot import take_snapshot
+                with st.spinner("Taking snapshot..."):
+                    snap = take_snapshot(label="manual")
+                if "error" in snap:
+                    st.error(snap["error"])
+                else:
+                    total_nodes = sum(snap.get("node_counts", {}).values())
+                    st.success(f"Snapshot saved — {total_nodes} nodes")
+            except Exception as e:
+                st.error(str(e))
+
     with col_left:
-        st.subheader("System Stats")
-        stats = run_query("""
-            MATCH (n)
-            RETURN labels(n)[0] AS label, count(n) AS cnt
-            ORDER BY cnt DESC
-        """)
-        if stats:
-            import pandas as pd
-            df = pd.DataFrame(stats)
-            st.dataframe(df, use_container_width=True)
+        tab_stats, tab_errors, tab_history = st.tabs(["📊 Stats", "🔴 Errors", "🕓 History"])
 
-        st.subheader("Hypothesis Pipeline Status")
-        hyp_stats = run_query("""
-            MATCH (h:DisruptionHypothesis)
-            OPTIONAL MATCH (ev:Evaluation)-[:EVALUATES]->(h)
-            WITH h, count(DISTINCT ev) AS eval_count
-            RETURN
-                h.status AS status,
-                count(h) AS total,
-                count(h.validation_score) AS scored,
-                count(h.research_confidence) AS researched,
-                sum(eval_count) AS total_evals
-        """)
-        if hyp_stats:
-            st.dataframe(hyp_stats, use_container_width=True)
+        with tab_stats:
+            st.subheader("System Stats")
+            stats = run_query("""
+                MATCH (n)
+                RETURN labels(n)[0] AS label, count(n) AS cnt
+                ORDER BY cnt DESC
+            """)
+            if stats:
+                import pandas as pd
+                df = pd.DataFrame(stats)
+                st.dataframe(df, use_container_width=True)
 
-        st.subheader("Top 5 Opportunities")
-        top_opps = run_query("""
-            MATCH (v:TransformationVector)
-            WHERE v.opportunity_score IS NOT NULL
-            MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
-            MATCH (v)-[:TO_BIM]->(t:BusinessModel)
-            RETURN f.name AS from_name, t.name AS to_name,
-                   round(v.opportunity_score, 4) AS opp_score,
-                   round(v.signal_strength, 4) AS signal
-            ORDER BY v.opportunity_score DESC
-            LIMIT 5
-        """)
-        if top_opps:
-            st.dataframe(top_opps, use_container_width=True)
+            st.subheader("Hypothesis Pipeline Status")
+            hyp_stats = run_query("""
+                MATCH (h:DisruptionHypothesis)
+                OPTIONAL MATCH (ev:Evaluation)-[:EVALUATES]->(h)
+                WITH h, count(DISTINCT ev) AS eval_count
+                RETURN
+                    h.status AS status,
+                    count(h) AS total,
+                    count(h.validation_score) AS scored,
+                    count(h.research_confidence) AS researched,
+                    sum(eval_count) AS total_evals
+            """)
+            if hyp_stats:
+                st.dataframe(hyp_stats, use_container_width=True)
+
+            st.subheader("Top 5 Opportunities")
+            top_opps = run_query("""
+                MATCH (v:TransformationVector)
+                WHERE v.opportunity_score IS NOT NULL
+                MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
+                MATCH (v)-[:TO_BIM]->(t:BusinessModel)
+                RETURN f.name AS from_name, t.name AS to_name,
+                       round(v.opportunity_score, 4) AS opp_score,
+                       round(v.signal_strength, 4) AS signal
+                ORDER BY v.opportunity_score DESC
+                LIMIT 5
+            """)
+            if top_opps:
+                st.dataframe(top_opps, use_container_width=True)
+
+        with tab_errors:
+            try:
+                from core.error_log import read_recent, clear_log, error_count_last_24h
+                err_24h = error_count_last_24h()
+                if err_24h > 0:
+                    st.error(f"🔴 {err_24h} error(s) in the last 24 hours")
+                else:
+                    st.success("✅ No errors in the last 24 hours")
+
+                col_e1, col_e2 = st.columns([3, 1])
+                with col_e2:
+                    if st.button("🗑 Clear log", help="Truncate the error log file"):
+                        clear_log()
+                        st.success("Log cleared")
+                        st.rerun()
+
+                errors_raw = read_recent(50)
+                if not errors_raw:
+                    st.info("No errors recorded yet.")
+                else:
+                    import pandas as pd
+                    err_df = pd.DataFrame([{
+                        "Time":     r.get("timestamp", "")[:19].replace("T", " "),
+                        "Module":   r.get("module", ""),
+                        "Function": r.get("function", ""),
+                        "Error":    f"{r.get('error_type','')}: {r.get('message','')[:80]}",
+                        "Context":  str(r.get("context", "")),
+                    } for r in errors_raw])
+                    st.dataframe(err_df, use_container_width=True)
+
+                    with st.expander("🔍 Full traceback (last error)"):
+                        if errors_raw:
+                            st.code(errors_raw[0].get("traceback", ""), language="python")
+            except ImportError:
+                st.warning("core.error_log not available — run `git init` and restart.")
+
+        with tab_history:
+            st.subheader("Code Commits")
+            try:
+                from core.version_control import get_recent_commits, git_restore, current_sha
+                sha_now = current_sha()
+                st.caption(f"Current HEAD: `{sha_now}`")
+
+                commits = get_recent_commits(15)
+                if not commits:
+                    st.info("No commits yet. Run the pipeline once to auto-commit.")
+                else:
+                    for c in commits:
+                        c_col1, c_col2 = st.columns([4, 1])
+                        with c_col1:
+                            st.markdown(f"**`{c['sha']}`** {c['message']}")
+                            st.caption(f"{c['timestamp']} — {c['author']}")
+                        with c_col2:
+                            if c["sha"] != sha_now:
+                                restore_key = f"restore_{c['sha']}"
+                                if st.button("⏪ Restore", key=restore_key,
+                                             help=f"Restore *.py files to {c['sha']}"):
+                                    res = git_restore(c["full_sha"])
+                                    if res["restored"]:
+                                        st.success(f"Restored to {res['sha']}")
+                                    else:
+                                        st.error(res["error"])
+                        st.divider()
+            except ImportError:
+                st.warning("core.version_control not available — install GitPython.")
+
+            st.subheader("Data Snapshots")
+            try:
+                from core.snapshot import list_snapshots
+                snapshots = list_snapshots(10)
+                if not snapshots:
+                    st.info("No snapshots yet. Click '📸 Take snapshot' or run the pipeline.")
+                else:
+                    for snap in snapshots:
+                        with st.expander(
+                            f"🗃 {snap['timestamp'][:16]}  ·  {snap['label'] or 'snapshot'}  "
+                            f"·  {snap['total_nodes']} nodes"
+                        ):
+                            s_col1, s_col2, s_col3 = st.columns(3)
+                            s_col1.metric("Hypotheses", snap["hypotheses"])
+                            s_col2.metric("Vectors", snap["vectors"])
+                            s_col3.metric("Evidence", snap["evidence"])
+                            st.json(snap["full_data"])
+            except ImportError:
+                st.warning("core.snapshot not available.")

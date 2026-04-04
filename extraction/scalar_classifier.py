@@ -32,6 +32,16 @@ from rich.table import Table
 load_dotenv(override=True)
 console = Console(width=200)
 
+try:
+    from core.error_log import log_error, capture_errors
+    _LOG_AVAILABLE = True
+except ImportError:
+    _LOG_AVAILABLE = False
+    def log_error(*a, **k): pass
+    def capture_errors(context_keys=None):
+        def decorator(fn): return fn
+        return decorator
+
 IMPACT_SCORE = {
     ("increases", "strong"):   2,
     ("increases", "moderate"): 1,
@@ -183,6 +193,7 @@ def write_scalar_impacts(driver, vector_id: str, classification: dict) -> int:
     return written
 
 
+@capture_errors(context_keys=["from_bim_id", "to_bim_id"])
 def classify_vector_scalars(
     from_bim_id: str,
     to_bim_id: str,

@@ -42,6 +42,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from extraction.vector_extractor import fetch_url_content, extract_from_text
 from extraction.scalar_classifier import classify_vector_scalars
+
+try:
+    from core.error_log import log_error
+except ImportError:
+    def log_error(*a, **k): pass
 from extraction.hypothesis_generator import generate_hypothesis
 from neo4j import GraphDatabase
 
@@ -264,6 +269,7 @@ def process_company(company: str, patterns: list[str], dry_run: bool = False) ->
         return {"company": company, "articles": len(articles), "transitions": len(written)}
     except Exception as e:
         console.print(f"  [red]Extraction error: {e}[/red]")
+        log_error("scripts.ingest_bmn_companies", "process_company", e, context={"company": company})
         return {"company": company, "articles": len(articles), "transitions": 0, "error": str(e)}
 
 

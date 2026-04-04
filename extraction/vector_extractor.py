@@ -31,6 +31,16 @@ from rich.table import Table
 load_dotenv(override=True)
 console = Console(width=200)
 
+try:
+    from core.error_log import log_error, capture_errors
+    _LOG_AVAILABLE = True
+except ImportError:
+    _LOG_AVAILABLE = False
+    def log_error(*a, **k): pass
+    def capture_errors(context_keys=None):
+        def decorator(fn): return fn
+        return decorator
+
 
 def get_driver():
     return GraphDatabase.driver(
@@ -66,8 +76,8 @@ def fetch_url_content(url: str) -> str:
         results = resp.get("results", [])
         if results:
             return results[0].get("raw_content", "")[:6000]
-    except Exception:
-        pass
+    except Exception as e:
+        log_error("extraction.vector_extractor", "fetch_url_content[extract]", e, context={"url": url})
     # Fallback: search for the URL content
     try:
         resp = client.search(url, max_results=3)
@@ -235,6 +245,7 @@ def write_evidence(driver, vector_id: str, transition: dict,
     return evd_id
 
 
+@capture_errors(context_keys=["source_url"])
 def extract_from_text(
     text: str,
     source_url: str = "manual_input",
@@ -329,6 +340,7 @@ def extract_from_text(
     return results
 
 
+@capture_errors(context_keys=["url"])
 def extract_from_url(url: str, dry_run: bool = False) -> list[dict]:
     """Fetch a URL and run extraction on its content."""
     console.print(f"\n[dim]Fetching: {url}[/dim]")

@@ -28,6 +28,16 @@ from rich.panel import Panel
 load_dotenv(override=True)
 console = Console(width=200)
 
+try:
+    from core.error_log import log_error, capture_errors
+    _LOG_AVAILABLE = True
+except ImportError:
+    _LOG_AVAILABLE = False
+    def log_error(*a, **k): pass
+    def capture_errors(context_keys=None):
+        def decorator(fn): return fn
+        return decorator
+
 
 def get_driver():
     return GraphDatabase.driver(
@@ -219,6 +229,7 @@ def write_hypothesis(driver, hypothesis: dict, vector_id: str) -> str:
     return hyp_id
 
 
+@capture_errors(context_keys=["from_bim_id", "to_bim_id"])
 def generate_hypothesis(
     from_bim_id: str,
     to_bim_id: str,
@@ -251,6 +262,8 @@ def generate_hypothesis(
     try:
         hypothesis = call_claude_generate(ctx)
     except Exception as e:
+        log_error("extraction.hypothesis_generator", "generate_hypothesis[call_claude]", e,
+                  context={"from_bim_id": from_bim_id, "to_bim_id": to_bim_id})
         driver.close()
         return {
             "hypothesis_id": None,
