@@ -43,7 +43,7 @@ page = st.sidebar.radio(
     ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
      "⚡ Scalars", "🔬 Technologies", "🧠 Hypotheses", "🏢 Companies",
      "📋 Input Review Queue", "📊 Graph Overview",
-     "🔬 Validation Review", "📝 Editorial Queue", "🔄 Pipeline Monitor"],
+     "🔄 Pipeline Monitor"],
 )
 
 st.sidebar.divider()
@@ -2995,276 +2995,6 @@ elif page == "🧠 Hypotheses":
                 prim = h.get("primary_scalar") or "—"
                 st.markdown(f"`{prim}` {scalar_names.get(prim,'')[:40]}")
 
-# ── Page: Validation Review ───────────────────────────────────────────────────
-
-elif page == "🔬 Validation Review":
-    st.title("Validation Review")
-    st.caption("Research briefs and adversarial counter-briefs for each hypothesis.")
-
-    validated = run_query("""
-        MATCH (h:DisruptionHypothesis)
-        OPTIONAL MATCH (ev:Evaluation)-[:EVALUATES]->(h)
-        WITH h, collect({type: ev.evaluation_type, conf: ev.confidence}) AS evals
-        RETURN h.hypothesis_id    AS hid,
-               h.title            AS title,
-               h.thesis           AS thesis,
-               h.status           AS status,
-               h.conviction_score AS conviction,
-               h.validation_score AS validation,
-               h.research_confidence AS research_conf,
-               h.counter_confidence  AS counter_conf,
-               h.companies_actively_transitioning AS transitioning,
-               h.from_bim_id AS from_id, h.to_bim_id AS to_id,
-               evals
-        ORDER BY coalesce(h.validation_score, h.conviction_score) DESC
-    """)
-
-    if not validated:
-        st.info("No hypotheses yet. Run the extraction pipeline.")
-    else:
-        for h in validated:
-            evals = h.get("evals") or []
-            has_research = any(e.get("type") == "deep_research" for e in evals)
-            has_counter  = any(e.get("type") == "counter_research" for e in evals)
-            val = h.get("validation") or h.get("conviction") or 0
-            status = h.get("status", "Hypothesis")
-            status_icon = {"Validated": "🟢", "Contested": "🔴",
-                           "Hypothesis": "🟡", "Escalated": "⬆️"}.get(status, "⚪")
-
-            with st.expander(
-                f"{status_icon} **{h['hid']}** — {h['title'] or 'Untitled'}  "
-                f"·  val={val:.2f}  ·  {status}  "
-                f"·  {'✅research' if has_research else '❌research'}  "
-                f"·  {'✅counter' if has_counter else '❌counter'}"
-            ):
-                tab_brief, tab_counter, tab_score = st.tabs(
-                    ["Research Brief", "Counter Brief", "Validation Score"]
-                )
-
-                with tab_brief:
-                    if has_research:
-                        brief_ev = next((e for e in evals if e.get("type") == "deep_research"), {})
-                        st.metric("Research confidence", f"{brief_ev.get('conf', 0):.2f}")
-                        driver = get_driver()
-                        with driver.session() as s:
-                            ev_rec = s.run("""
-                                MATCH (ev:Evaluation {evaluation_id:$eid})
-                                RETURN ev.content_json AS cj
-                            """, eid=f"EVAL_{h['hid']}_DEEP_RESEARCH").single()
-                        driver.close()
-                        if ev_rec:
-                            try:
-                                content = json.loads(ev_rec["cj"])
-                                st.markdown(f"**Summary:** {content.get('research_summary','')}")
-                                st.markdown("**Supporting:**")
-                                for e in content.get("supporting_evidence", [])[:4]:
-                                    st.markdown(f"- [{e.get('strength','')}] {e.get('claim','')}")
-                                st.markdown("**Refuting:**")
-                                for e in content.get("refuting_evidence", [])[:3]:
-                                    st.markdown(f"- [{e.get('strength','')}] {e.get('claim','')}")
-                            except Exception:
-                                pass
-                    else:
-                        st.info("No research brief yet.")
-                        if st.button(f"Run deep research", key=f"run_research_{h['hid']}"):
-                            from research.deep_researcher import research_hypothesis
-                            research_hypothesis(h["hid"])
-                            st.rerun()
-
-                with tab_counter:
-                    if has_counter:
-                        driver = get_driver()
-                        with driver.session() as s:
-                            ev_rec = s.run("""
-                                MATCH (ev:Evaluation {evaluation_id:$eid})
-                                RETURN ev.content_json AS cj, ev.confidence AS conf
-                            """, eid=f"EVAL_{h['hid']}_COUNTER_RESEARCH").single()
-                        driver.close()
-                        if ev_rec:
-                            st.metric("Adversarial confidence", f"{ev_rec['conf']:.2f}")
-                            try:
-                                content = json.loads(ev_rec["cj"])
-                                st.markdown(f"**Counter thesis:** {content.get('counter_thesis','')}")
-                                st.markdown("**Structural barriers:**")
-                                for b in content.get("structural_barriers", [])[:4]:
-                                    st.markdown(f"- [{b.get('severity','')}] **{b.get('barrier','')}**: {b.get('description','')}")
-                            except Exception:
-                                pass
-                    else:
-                        st.info("No counter brief yet.")
-                        if st.button(f"Run counter research", key=f"run_counter_{h['hid']}"):
-                            from research.deep_researcher import counter_research_hypothesis
-                            counter_research_hypothesis(h["hid"])
-                            st.rerun()
-
-                with tab_score:
-                    cols = st.columns(3)
-                    cols[0].metric("Conviction", f"{h.get('conviction') or 0:.2f}")
-                    cols[1].metric("Research", f"{h.get('research_conf') or 0:.2f}")
-                    cols[2].metric("Validation", f"{val:.2f}")
-                    if st.button("Recalculate validation score", key=f"rescore_{h['hid']}"):
-                        from research.validation_scorer import score_hypothesis
-                        score_hypothesis(h["hid"])
-                        st.rerun()
-
-
-# ── Page: Editorial Queue ─────────────────────────────────────────────────────
-
-elif page == "📝 Editorial Queue":
-    st.title("Editorial Queue")
-    st.caption(
-        "Hypotheses ranked by editorial priority. Add notes, change status, "
-        "or promote to deep research."
-    )
-
-    priority_filter = st.selectbox(
-        "Filter by staleness",
-        ["All", "URGENT (no score)", "STALE (new evidence)", "DRIFT (signal changed)", "CURRENT"],
-    )
-
-    queue_rows = run_query("""
-        MATCH (h:DisruptionHypothesis)
-        OPTIONAL MATCH (h)-[:GENERATED_FROM]->(v:TransformationVector)
-        OPTIONAL MATCH (ev:Evaluation)-[:EVALUATES]->(h)
-        WITH h, v, count(DISTINCT ev) AS eval_count
-        RETURN h.hypothesis_id        AS hid,
-               h.title                AS title,
-               h.status               AS status,
-               h.conviction_score     AS conviction,
-               h.validation_score     AS validation,
-               h.research_confidence  AS research_conf,
-               h.counter_confidence   AS counter_conf,
-               h.researched_at        AS researched_at,
-               h.validated_at         AS validated_at,
-               h.signal_at_validation AS signal_at_val,
-               h.editorial_note       AS editorial_note,
-               h.editorial_priority   AS editorial_priority,
-               v.signal_strength      AS signal,
-               eval_count
-        ORDER BY
-            CASE WHEN h.validation_score IS NULL THEN 0 ELSE 1 END ASC,
-            h.conviction_score DESC
-    """)
-
-    if not queue_rows:
-        st.info("No hypotheses in graph yet.")
-    else:
-        # Apply staleness filter (client-side for simplicity)
-        def classify_staleness(row):
-            if row.get("validation") is None:
-                return "URGENT (no score)"
-            researched = row.get("researched_at")
-            # We don't have latest_evidence_at in this query; classify remaining as CURRENT
-            sig_now  = row.get("signal") or 0
-            sig_val  = row.get("signal_at_val") or 0
-            if sig_val > 0 and abs(sig_now - sig_val) > 0.10:
-                return "DRIFT (signal changed)"
-            return "CURRENT"
-
-        if priority_filter != "All":
-            queue_rows = [r for r in queue_rows if classify_staleness(r) == priority_filter]
-
-        st.info(f"{len(queue_rows)} hypothesis(es) shown")
-
-        for h in queue_rows:
-            staleness = classify_staleness(h)
-            stale_icon = {
-                "URGENT (no score)":     "🔴",
-                "STALE (new evidence)":  "🟡",
-                "DRIFT (signal changed)": "🔵",
-                "CURRENT":               "🟢",
-            }.get(staleness, "⚪")
-
-            val_str = f"{h['validation']:.4f}" if h.get("validation") is not None else "unscored"
-            with st.expander(
-                f"{stale_icon} **{h['hid']}** — {h['title'] or 'Untitled'}  "
-                f"·  {staleness}  ·  conviction={h.get('conviction') or 0:.2f}  "
-                f"·  val={val_str}  ·  evals={h.get('eval_count',0)}"
-            ):
-                col1, col2 = st.columns([3, 1])
-
-                with col1:
-                    metrics_cols = st.columns(4)
-                    metrics_cols[0].metric("Conviction", f"{h.get('conviction') or 0:.2f}")
-                    metrics_cols[1].metric("Signal",     f"{h.get('signal') or 0:.4f}")
-                    metrics_cols[2].metric("Research",   f"{h.get('research_conf') or 0:.2f}")
-                    metrics_cols[3].metric("Validation", val_str)
-
-                    # Editorial note
-                    current_note = h.get("editorial_note") or ""
-                    st.markdown("**Editorial note:**")
-                    note_key = f"note_{h['hid']}"
-                    new_note = st.text_area(
-                        "Add/edit note",
-                        value=current_note,
-                        key=note_key,
-                        height=80,
-                        label_visibility="collapsed",
-                    )
-
-                    note_col1, note_col2 = st.columns([1, 3])
-                    if note_col1.button("💾 Save note", key=f"save_note_{h['hid']}"):
-                        run_query("""
-                            MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
-                            SET n.editorial_note = $note,
-                                n.editorial_updated_at = $now,
-                                n.editorial_updated_by = 'human_ui'
-                        """, id=h["hid"], note=new_note,
-                            now=datetime.now(timezone.utc).isoformat())
-                        st.success("Note saved")
-                        st.rerun()
-
-                    # Priority label
-                    priorities = ["—", "high", "medium", "low", "watch", "archive"]
-                    current_pri = h.get("editorial_priority") or "—"
-                    current_idx = priorities.index(current_pri) if current_pri in priorities else 0
-                    new_pri = st.selectbox(
-                        "Editorial priority",
-                        priorities,
-                        index=current_idx,
-                        key=f"pri_{h['hid']}",
-                    )
-                    if new_pri != current_pri:
-                        run_query("""
-                            MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
-                            SET n.editorial_priority = $pri
-                        """, id=h["hid"], pri=new_pri if new_pri != "—" else None)
-
-                with col2:
-                    st.markdown("**Actions**")
-
-                    # Trigger deep research
-                    if st.button("🔬 Research now", key=f"ed_research_{h['hid']}"):
-                        from research.deep_researcher import (
-                            research_hypothesis, counter_research_hypothesis
-                        )
-                        with st.spinner("Running research..."):
-                            research_hypothesis(h["hid"])
-                            counter_research_hypothesis(h["hid"])
-                        from research.validation_scorer import score_hypothesis
-                        score_hypothesis(h["hid"])
-                        st.success("Research + scoring complete")
-                        st.rerun()
-
-                    # Status change
-                    st.markdown("**Set status:**")
-                    for new_status, icon in [
-                        ("Validated", "✅"), ("Contested", "❌"), ("Hypothesis", "🔄"),
-                    ]:
-                        if h.get("status") != new_status:
-                            if st.button(
-                                f"{icon} {new_status}", key=f"ed_set_{h['hid']}_{new_status}"
-                            ):
-                                run_query("""
-                                    MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
-                                    SET n.status = $status,
-                                        n.editorial_status_set_at = $now,
-                                        n.editorial_status_set_by = 'human_ui'
-                                """, id=h["hid"], status=new_status,
-                                    now=datetime.now(timezone.utc).isoformat())
-                                st.success(f"Status set to {new_status}")
-                                st.rerun()
-
 
 # ── Page: Pipeline Monitor ────────────────────────────────────────────────────
 
@@ -3297,22 +3027,6 @@ elif page == "🔄 Pipeline Monitor":
                 health = stage_health()
             st.json(health)
 
-        if st.button("🔍 Staleness report"):
-            from evaluation.monitor import run_monitor
-            with st.spinner("Running monitor..."):
-                report = run_monitor(drift_threshold=0.10, dry_run=True)
-            st.metric("URGENT", report["urgent"])
-            st.metric("STALE",  report["stale"])
-            st.metric("DRIFT",  report["drift"])
-            st.metric("CURRENT", report["current"])
-            if report["queue"]:
-                st.dataframe([{
-                    "ID":       q["hypothesis_id"],
-                    "Staleness": q["staleness"],
-                    "Reason":   q["staleness_reason"],
-                    "Val":      q.get("validation_score"),
-                } for q in report["queue"]])
-
         st.divider()
         if st.button("📸 Take snapshot", help="Save a JSON snapshot of current graph state"):
             try:
@@ -3342,17 +3056,11 @@ elif page == "🔄 Pipeline Monitor":
                 df = pd.DataFrame(stats)
                 st.dataframe(df, use_container_width=True)
 
-            st.subheader("Hypothesis Pipeline Status")
+            st.subheader("Hypothesis Status")
             hyp_stats = run_query("""
                 MATCH (h:DisruptionHypothesis)
-                OPTIONAL MATCH (ev:Evaluation)-[:EVALUATES]->(h)
-                WITH h, count(DISTINCT ev) AS eval_count
-                RETURN
-                    h.status AS status,
-                    count(h) AS total,
-                    count(h.validation_score) AS scored,
-                    count(h.research_confidence) AS researched,
-                    sum(eval_count) AS total_evals
+                RETURN h.status AS status, count(h) AS total
+                ORDER BY total DESC
             """)
             if hyp_stats:
                 st.dataframe(hyp_stats, use_container_width=True)

@@ -1,5 +1,5 @@
 """
-orchestrator/pipeline.py — Full Pipeline Runner (Part 26)
+orchestrator/pipeline.py — Full Pipeline Runner
 
 Runs the entire scouting pipeline or individual stages.
 
@@ -7,16 +7,11 @@ Stages (in dependency order):
   1. scan        — Internet scan for new business models (bm_scanner)
   2. aggregate   — Recompute signal_strength on all vectors
   3. trends      — Detect scalar activation trends
-  4. rank        — Recompute opportunity scores
-  5. monitor     — Check which hypotheses need re-research
-  6. research    — Run deep + counter research on top unresearched hypothesis
-  7. score       — Compute validation scores for researched hypotheses
-  8. health      — Graph health check (node/rel counts)
+  4. health      — Graph health check (node/rel counts)
 
 Usage:
     python orchestrator/pipeline.py
-    python orchestrator/pipeline.py --stages aggregate,trends,rank
-    python orchestrator/pipeline.py --stages research --target HYP_BIM_026_BIM_027
+    python orchestrator/pipeline.py --stages aggregate,trends
     python orchestrator/pipeline.py --dry-run
 """
 
@@ -44,7 +39,7 @@ try:
 except ImportError:
     _CORE_AVAILABLE = False
 
-ALL_STAGES = ["scan", "aggregate", "trends", "rank", "monitor", "research", "score", "health"]
+ALL_STAGES = ["scan", "aggregate", "trends", "health"]
 
 
 def get_driver():
@@ -83,91 +78,6 @@ def stage_trends(dry_run: bool = False, **kwargs) -> dict:
     return {"trends_found": len(trends)}
 
 
-def stage_rank(dry_run: bool = False, **kwargs) -> dict:
-    """Recompute opportunity scores for all vectors."""
-    from analysis.opportunity_ranker import run_ranking
-    console.print("  [dim]Ranking opportunities...[/dim]")
-    scored = run_ranking(dry_run=dry_run)  # returns list[dict]
-    return {"vectors_ranked": len(scored)}
-
-
-def stage_monitor(dry_run: bool = False, **kwargs) -> dict:
-    """Check which hypotheses are stale and need re-research."""
-    from evaluation.monitor import run_monitor
-    console.print("  [dim]Running staleness monitor...[/dim]")
-    report = run_monitor(drift_threshold=0.10, dry_run=dry_run)
-    return {
-        "urgent":  report.get("urgent", 0),
-        "stale":   report.get("stale", 0),
-        "drift":   report.get("drift", 0),
-        "current": report.get("current", 0),
-    }
-
-
-def stage_research(dry_run: bool = False, target: str = None, **kwargs) -> dict:
-    """
-    Run deep + counter research on unresearched hypotheses.
-    If target is given, research only that hypothesis.
-    Otherwise, pick the top-priority hypothesis from the monitor queue.
-    """
-    from research.deep_researcher import research_hypothesis, counter_research_hypothesis
-    from evaluation.monitor import build_rescore_queue
-
-    if target:
-        hids = [target]
-    else:
-        driver = get_driver()
-        queue = build_rescore_queue(driver)
-        driver.close()
-        # Take up to 1 URGENT hypothesis, or the top stale one
-        urgent = [h["hypothesis_id"] for h in queue if h["staleness"] == "URGENT"]
-        hids = urgent[:1] if urgent else [queue[0]["hypothesis_id"]] if queue else []
-
-    if not hids:
-        console.print("  [dim]No hypotheses need research.[/dim]")
-        return {"researched": 0}
-
-    researched = 0
-    for hid in hids:
-        console.print(f"  [dim]Deep research: {hid}...[/dim]")
-        r_result = research_hypothesis(hid, dry_run=dry_run)
-        console.print(f"  [dim]Counter research: {hid}...[/dim]")
-        c_result = counter_research_hypothesis(hid, dry_run=dry_run)
-        if r_result.get("status") != "error" and c_result.get("status") != "error":
-            researched += 1
-
-    return {"researched": researched, "hypothesis_ids": hids}
-
-
-def stage_score(dry_run: bool = False, target: str = None, **kwargs) -> dict:
-    """Compute validation scores for all researched hypotheses."""
-    from research.validation_scorer import score_hypothesis
-
-    driver = get_driver()
-    with driver.session() as s:
-        rows = s.run("""
-            MATCH (h:DisruptionHypothesis)
-            WHERE h.research_confidence IS NOT NULL
-               OR h.counter_confidence IS NOT NULL
-            RETURN h.hypothesis_id AS hid
-        """).data()
-    driver.close()
-
-    hids = [r["hid"] for r in rows]
-    if target:
-        hids = [target] if target in hids else []
-
-    scored = 0
-    for hid in hids:
-        console.print(f"  [dim]Scoring {hid}...[/dim]")
-        try:
-            score_hypothesis(hid, dry_run=dry_run)
-            scored += 1
-        except Exception as e:
-            console.print(f"  [yellow]Warning: scoring {hid} failed: {e}[/yellow]")
-
-    return {"scored": scored}
-
 
 def stage_health(**kwargs) -> dict:
     """Graph health check — node/rel counts and data quality indicators."""
@@ -187,9 +97,8 @@ def stage_health(**kwargs) -> dict:
             MATCH (h:DisruptionHypothesis)
             RETURN
                 count(h) AS total,
-                count(h.validation_score) AS scored,
                 count(CASE WHEN h.status = 'Validated' THEN 1 END) AS validated,
-                count(CASE WHEN h.status = 'Contested' THEN 1 END) AS contested,
+                count(CASE WHEN h.status = 'Rejected' THEN 1 END) AS rejected,
                 count(CASE WHEN h.status = 'Hypothesis' THEN 1 END) AS hypothesis_status
         """).single()
     driver.close()
@@ -203,9 +112,8 @@ def stage_health(**kwargs) -> dict:
     ))
     console.print(Panel(
         f"  Total hypotheses: {hyp_stats['total']}\n"
-        f"  Scored: {hyp_stats['scored']}\n"
         f"  Validated: {hyp_stats['validated']}  |  "
-        f"Contested: {hyp_stats['contested']}  |  "
+        f"Rejected: {hyp_stats['rejected']}  |  "
         f"Hypothesis: {hyp_stats['hypothesis_status']}",
         title="Hypothesis Health",
     ))
@@ -223,10 +131,6 @@ STAGE_FNS = {
     "scan":      stage_scan,
     "aggregate": stage_aggregate,
     "trends":    stage_trends,
-    "rank":      stage_rank,
-    "monitor":   stage_monitor,
-    "research":  stage_research,
-    "score":     stage_score,
     "health":    stage_health,
 }
 
@@ -253,8 +157,8 @@ def run_pipeline(stages: list = None, dry_run: bool = False,
         }
     """
     if stages is None:
-        # Default: analysis + monitoring loop (safe to run frequently)
-        stages = ["aggregate", "trends", "rank", "monitor", "score", "health"]
+        # Default: analysis + health (safe to run frequently)
+        stages = ["aggregate", "trends", "health"]
 
     started_at = datetime.now(timezone.utc).isoformat()
     console.print(f"\n[bold]Pipeline Runner[/bold] — stages: {', '.join(stages)}")

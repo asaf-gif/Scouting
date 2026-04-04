@@ -12,7 +12,6 @@ Usage:
     python graph/inspector.py hypothesis --status candidate
     python graph/inspector.py company --id ipsos
     python graph/inspector.py review-queue --type new_bm_candidate
-    python graph/inspector.py rescore-queue
     python graph/inspector.py export --entity companies --output review.csv
 """
 
@@ -443,38 +442,6 @@ def cmd_review_queue(args, driver):
 
 
 # ─────────────────────────────────────────────
-# RESCORE QUEUE
-# ─────────────────────────────────────────────
-
-def cmd_rescore_queue(args, driver):
-    with driver.session() as s:
-        result = s.run("""
-            MATCH (v:TransformationVector)
-            WHERE v.rescore_queued = true
-            OPTIONAL MATCH (v)-[:FROM_BIM]->(f:BusinessModel)
-            OPTIONAL MATCH (v)-[:TO_BIM]->(t:BusinessModel)
-            RETURN v.vector_id AS vid, f.name AS from_name, t.name AS to_name,
-                   v.rescore_reason AS reason
-            LIMIT 100
-        """)
-        rows = result.data()
-
-    if not rows:
-        console.print("[yellow]Rescore queue is empty.[/yellow]")
-        return
-
-    t = Table(title=f"Rescore Queue ({len(rows)} vectors)", box=box.SIMPLE_HEAVY)
-    t.add_column("Vector ID", style="dim")
-    t.add_column("FROM")
-    t.add_column("TO")
-    t.add_column("Reason")
-
-    for r in rows:
-        t.add_row(r["vid"] or "—", r["from_name"] or "—", r["to_name"] or "—", r["reason"] or "—")
-    console.print(t)
-
-
-# ─────────────────────────────────────────────
 # EXPORT
 # ─────────────────────────────────────────────
 
@@ -533,103 +500,6 @@ def cmd_export(args, driver):
 
 
 # ─────────────────────────────────────────────
-# EVALUATION
-# ─────────────────────────────────────────────
-
-def cmd_evaluation(args, driver):
-    with driver.session() as s:
-        if args.hypothesis_id:
-            result = s.run("""
-                MATCH (e:Evaluation)
-                WHERE e.hyp_id = $hid
-                RETURN e
-            """, hid=args.hypothesis_id)
-        else:
-            result = s.run("MATCH (e:Evaluation) RETURN e ORDER BY e.created_at DESC LIMIT 20")
-
-        rows = result.data()
-
-    if not rows:
-        console.print("[yellow]No evaluations found.[/yellow]")
-        return
-
-    for r in rows:
-        e = dict(r["e"])
-        lines = [f"[bold]{k}:[/bold] {v}" for k, v in sorted(e.items())]
-        console.print(Panel("\n".join(lines), title=f"Evaluation: {e.get('eval_id', '?')}"))
-
-
-# ─────────────────────────────────────────────
-# RESEARCH BRIEF
-# ─────────────────────────────────────────────
-
-def cmd_research_brief(args, driver):
-    with driver.session() as s:
-        result = s.run("""
-            MATCH (h:DisruptionHypothesis {hyp_id: $hid})
-            RETURN h.research_brief AS brief, h.counter_brief AS counter,
-                   h.confidence_score AS conf, h.status AS status
-        """, hid=args.hypothesis_id)
-        rec = result.single()
-
-    if not rec:
-        console.print(f"[red]Hypothesis '{args.hypothesis_id}' not found[/red]")
-        return
-
-    console.print(Panel(rec["brief"] or "[dim]No research brief yet[/dim]",
-                        title=f"Research Brief — {args.hypothesis_id} (conf={rec['conf']}, status={rec['status']})"))
-    console.print(Panel(rec["counter"] or "[dim]No counter brief yet[/dim]",
-                        title="Counter Brief"))
-
-
-# ─────────────────────────────────────────────
-# COUNTER BRIEF
-# ─────────────────────────────────────────────
-
-def cmd_counter_brief(args, driver):
-    cmd_research_brief(args, driver)  # shows both
-
-
-# ─────────────────────────────────────────────
-# TOP OPPORTUNITIES
-# ─────────────────────────────────────────────
-
-def cmd_top_opportunities(args, driver):
-    limit = args.limit
-    with driver.session() as s:
-        result = s.run("""
-            MATCH (h:DisruptionHypothesis)
-            WHERE h.confidence_gate IN ['review', 'deep_research']
-            OPTIONAL MATCH (h)-[:TARGETS]->(c:Company)
-            OPTIONAL MATCH (h)-[:PREDICTS]->(v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel),
-                           (v)-[:TO_BIM]->(t:BusinessModel)
-            RETURN h.hyp_id AS id, c.name AS company, f.name AS from_bm, t.name AS to_bm,
-                   h.confidence_score AS confidence, h.confidence_gate AS gate,
-                   h.status AS status
-            ORDER BY h.confidence_score DESC
-            LIMIT $limit
-        """, limit=limit)
-        rows = result.data()
-
-    if not rows:
-        console.print("[yellow]No actionable opportunities yet. Run the analysis pipeline first.[/yellow]")
-        return
-
-    t = Table(title=f"Top {limit} Opportunities", box=box.SIMPLE_HEAVY)
-    t.add_column("#", width=4, justify="right", style="dim")
-    t.add_column("Company", style="bold")
-    t.add_column("FROM → TO", min_width=35)
-    t.add_column("Confidence", justify="right", width=11)
-    t.add_column("Gate", width=14)
-
-    for i, r in enumerate(rows, 1):
-        transition = f"{r['from_bm'] or '?'} → {r['to_bm'] or '?'}"
-        t.add_row(str(i), r["company"] or "—", transition,
-                  conf_color(r["confidence"]), r["gate"] or "—")
-    console.print(t)
-
-
-# ─────────────────────────────────────────────
 # ARGUMENT PARSER
 # ─────────────────────────────────────────────
 
@@ -670,29 +540,12 @@ def build_parser():
     p_rq = sub.add_parser("review-queue", help="Show pending Human Review Queue items")
     p_rq.add_argument("--type", metavar="ITEM_TYPE")
 
-    # rescore-queue
-    sub.add_parser("rescore-queue", help="Show vectors queued for re-scoring")
-
     # export
     p_exp = sub.add_parser("export", help="Export entities to CSV")
     p_exp.add_argument("--entity", required=True,
                        choices=["companies", "bms", "vectors", "hypotheses", "scalars"])
     p_exp.add_argument("--output", required=True, metavar="FILE.CSV")
 
-    # evaluation
-    p_eval = sub.add_parser("evaluation", help="Show Evaluation records")
-    p_eval.add_argument("--hypothesis-id", metavar="HYP_ID")
-
-    # research-brief / counter-brief
-    p_rb = sub.add_parser("research-brief", help="Show research + counter brief for a hypothesis")
-    p_rb.add_argument("--hypothesis-id", required=True)
-
-    p_cb = sub.add_parser("counter-brief", help="Alias for research-brief")
-    p_cb.add_argument("--hypothesis-id", required=True)
-
-    # top-opportunities
-    p_opp = sub.add_parser("top-opportunities", help="Show top ranked opportunities")
-    p_opp.add_argument("--limit", type=int, default=10)
 
     return parser
 
@@ -705,12 +558,7 @@ COMMANDS = {
     "hypothesis":       cmd_hypothesis,
     "company":          cmd_company,
     "review-queue":     cmd_review_queue,
-    "rescore-queue":    cmd_rescore_queue,
     "export":           cmd_export,
-    "evaluation":       cmd_evaluation,
-    "research-brief":   cmd_research_brief,
-    "counter-brief":    cmd_counter_brief,
-    "top-opportunities": cmd_top_opportunities,
 }
 
 

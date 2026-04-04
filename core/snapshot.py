@@ -65,9 +65,8 @@ def take_snapshot(label: str = "") -> dict:
                 MATCH (h:DisruptionHypothesis)
                 RETURN
                     count(h)                                             AS total,
-                    count(h.validation_score)                            AS scored,
                     count(CASE WHEN h.status = 'Validated' THEN 1 END)  AS validated,
-                    count(CASE WHEN h.status = 'Contested' THEN 1 END)  AS contested,
+                    count(CASE WHEN h.status = 'Rejected' THEN 1 END)   AS rejected,
                     count(CASE WHEN h.status = 'Hypothesis' THEN 1 END) AS hypothesis_status,
                     avg(h.conviction_score)                              AS avg_conviction
             """).single()
@@ -80,29 +79,16 @@ def take_snapshot(label: str = "") -> dict:
                 ORDER BY conviction DESC LIMIT 5
             """).data()
 
-            # Top 5 vectors by opportunity score
-            top_vectors = s.run("""
-                MATCH (v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
-                MATCH (v)-[:TO_BIM]->(t:BusinessModel)
-                WHERE v.opportunity_score IS NOT NULL
-                RETURN v.vector_id AS vid,
-                       f.name AS from_bm, t.name AS to_bm,
-                       v.opportunity_score AS opp,
-                       v.signal_strength AS signal
-                ORDER BY opp DESC LIMIT 5
-            """).data()
-
         driver.close()
 
         now = datetime.now(timezone.utc)
         snapshot = {
-            "timestamp":   now.isoformat(),
-            "label":       label,
-            "node_counts": node_counts,
-            "rel_counts":  rel_counts,
-            "hypotheses":  dict(hyp_stats) if hyp_stats else {},
-            "top_hypotheses":  top_hyps,
-            "top_vectors":     top_vectors,
+            "timestamp":      now.isoformat(),
+            "label":          label,
+            "node_counts":    node_counts,
+            "rel_counts":     rel_counts,
+            "hypotheses":     dict(hyp_stats) if hyp_stats else {},
+            "top_hypotheses": top_hyps,
         }
 
         # Write file

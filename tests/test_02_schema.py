@@ -67,7 +67,7 @@ def test_all_node_labels(driver):
     expected_labels = {
         "BusinessModel", "TransformationVector", "Scalar",
         "Company", "Industry", "Technology",
-        "DisruptionHypothesis", "Evidence", "Evaluation",
+        "DisruptionHypothesis", "Evidence",
         "HumanReviewItem", "CompressionLog",
     }
     with driver.session() as session:
