@@ -122,8 +122,8 @@ def gather_hypothesis_context(driver, tech_id: str, from_bim: str, to_bim: str) 
     return {
         "tech_id":            tech_id,
         "tech_name":          tech["name"] if tech else tech_id,
-        "tech_desc":          tech["description"] if tech else "",
-        "tech_thesis":        tech["thesis"] if tech else "",
+        "tech_desc":          (tech["description"] or "") if tech else "",
+        "tech_thesis":        (tech["thesis"] or "") if tech else "",
         "tech_primary_driver": tech["primary_driver"] if tech else "",
         "scalar_fingerprint": scalar_fingerprint,
         "vector_id":          vector_id,

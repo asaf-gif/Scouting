@@ -42,7 +42,7 @@ page = st.sidebar.radio(
     "Navigate",
     ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
      "⚡ Scalars", "🔬 Technologies", "📋 Input Review Queue",
-     "📊 Graph Overview", "🧠 Hypothesis Review", "📈 Top Opportunities",
+     "📊 Graph Overview", "🧠 Hypotheses", "📈 Top Opportunities",
      "🔬 Validation Review", "📝 Editorial Queue", "🔄 Pipeline Monitor"],
 )
 
@@ -2161,113 +2161,367 @@ elif page == "📋 Input Review Queue":
                             st.rerun()
 
 
-# ── Page: Hypothesis Review ───────────────────────────────────────────────────
+# ── Page: Hypotheses ──────────────────────────────────────────────────────────
 
-elif page == "🧠 Hypothesis Review":
-    st.title("Hypothesis Review")
-    st.caption("Disruption hypotheses generated from extraction pipeline. Review, approve, or escalate.")
+elif page == "🧠 Hypotheses":
+    st.title("Disruption Hypotheses")
+    st.caption("Each hypothesis follows the causal chain: **Technology → Scalars → Transition**. "
+               "Review the reasoning, give feedback, approve or reject.")
 
-    sort_by = st.selectbox("Sort by", ["conviction_score", "evidence_count", "created_at"],
-                           index=0)
+    # ── filters ──
+    fcol1, fcol2, fcol3, fcol4 = st.columns([2, 2, 2, 1])
+    with fcol1:
+        search_hyp = st.text_input("Search", placeholder="title, thesis, company…", label_visibility="collapsed")
+    with fcol2:
+        tech_filter_opts = ["All technologies"]
+        _tech_names = run_query("MATCH (t:Technology) RETURN t.tech_id AS id, t.name AS name ORDER BY t.tech_id")
+        tech_id_map = {t["name"]: t["id"] for t in (_tech_names or [])}
+        tech_filter_opts += list(tech_id_map.keys())
+        selected_tech_name = st.selectbox("Technology", tech_filter_opts, label_visibility="collapsed")
+    with fcol3:
+        status_filter = st.selectbox("Status", ["All", "Pending review", "Validated", "Rejected", "Escalated"],
+                                     label_visibility="collapsed")
+    with fcol4:
+        sort_hyp = st.selectbox("Sort", ["conviction_score", "activation_score", "created_at"],
+                                label_visibility="collapsed")
+
+    # ── query ──
+    hyp_where = []
+    hyp_params: dict = {}
+    if selected_tech_name != "All technologies":
+        hyp_where.append("t.tech_id = $tid")
+        hyp_params["tid"] = tech_id_map[selected_tech_name]
+    if status_filter == "Pending review":
+        hyp_where.append("h.pending_human_review = true")
+    elif status_filter != "All":
+        hyp_where.append("h.status = $hstatus")
+        hyp_params["hstatus"] = status_filter
+
+    where_clause = ("WHERE " + " AND ".join(hyp_where)) if hyp_where else ""
 
     hypotheses = run_query(f"""
-        MATCH (h:DisruptionHypothesis)
-        OPTIONAL MATCH (h)-[:GENERATED_FROM]->(v:TransformationVector)
+        MATCH (h:DisruptionHypothesis)-[:TRIGGERED_BY]->(t:Technology)
+        MATCH (h)-[:GENERATED_FROM]->(v:TransformationVector)
         OPTIONAL MATCH (f:BusinessModel {{bim_id: h.from_bim_id}})
-        OPTIONAL MATCH (t:BusinessModel {{bim_id: h.to_bim_id}})
-        RETURN h.hypothesis_id       AS hid,
-               h.title               AS title,
-               h.thesis              AS thesis,
-               h.counter_argument    AS counter,
-               h.conviction_score    AS conviction,
-               h.disruption_type     AS dtype,
-               h.time_horizon        AS horizon,
-               h.ai_technology_link  AS ai_link,
+        OPTIONAL MATCH (tb:BusinessModel {{bim_id: h.to_bim_id}})
+        {where_clause}
+        RETURN h.hypothesis_id        AS hid,
+               h.title                AS title,
+               h.thesis               AS thesis,
+               h.counter_argument     AS counter,
+               h.conviction_score     AS conviction,
+               h.activation_score     AS activation,
+               h.disruption_type      AS dtype,
+               h.time_horizon         AS horizon,
                h.primary_scalar_driver AS primary_scalar,
-               h.companies_exposed   AS companies,
-               h.evidence_count      AS evidence_count,
-               h.status              AS status,
+               h.supporting_scalars   AS supporting_scalars,
+               h.companies_exposed    AS companies,
+               h.evidence_count       AS evidence_count,
+               h.status               AS status,
                h.pending_human_review AS pending,
-               f.name AS from_name, t.name AS to_name,
-               v.signal_strength     AS signal,
-               v.opportunity_score   AS opp_score,
-               h.created_at          AS created_at
-        ORDER BY h.{sort_by} DESC
-    """)
+               h.feedback             AS feedback,
+               h.created_at           AS created_at,
+               h.updated_at           AS updated_at,
+               t.tech_id              AS tech_id,
+               t.name                 AS tech_name,
+               t.primary_scalar_driver AS tech_primary_scalar,
+               f.name AS from_name,
+               tb.name AS to_name,
+               v.vector_id            AS vid
+        ORDER BY h.{sort_hyp} DESC
+    """, **hyp_params)
 
-    if not hypotheses:
-        st.info("No hypotheses yet. Run the extraction pipeline to generate some.")
-    else:
-        st.info(f"{len(hypotheses)} hypothesis(es) in graph")
+    # Also fetch old-style hypotheses (no TRIGGERED_BY) for backwards compat display
+    old_hypotheses = run_query("""
+        MATCH (h:DisruptionHypothesis)
+        WHERE NOT (h)-[:TRIGGERED_BY]->()
+        OPTIONAL MATCH (f:BusinessModel {bim_id: h.from_bim_id})
+        OPTIONAL MATCH (tb:BusinessModel {bim_id: h.to_bim_id})
+        RETURN h.hypothesis_id AS hid, h.title AS title, h.thesis AS thesis,
+               h.conviction_score AS conviction, h.status AS status,
+               h.pending_human_review AS pending,
+               f.name AS from_name, tb.name AS to_name,
+               'legacy' AS tech_id, '(pre-redesign)' AS tech_name,
+               null AS activation, null AS primary_scalar, null AS supporting_scalars,
+               h.companies_exposed AS companies, h.evidence_count AS evidence_count,
+               h.disruption_type AS dtype, h.time_horizon AS horizon,
+               h.counter_argument AS counter, h.feedback AS feedback,
+               h.created_at AS created_at, h.updated_at AS updated_at,
+               null AS vid, null AS tech_primary_scalar
+        ORDER BY h.conviction_score DESC
+    """) or []
 
-        for h in hypotheses:
-            conv = h.get("conviction") or 0
-            conv_color = "🟢" if conv >= 0.7 else ("🟡" if conv >= 0.5 else "🔴")
-            pending_badge = "🔔 Pending review" if h.get("pending") else ""
-            status = h.get("status", "")
+    all_hyps = (hypotheses or []) + (old_hypotheses if selected_tech_name == "All technologies" and status_filter == "All" else [])
 
-            with st.expander(
-                f"{conv_color} **{h['hid']}** — {h['title'] or 'Untitled'}  "
-                f"·  conviction={conv:.2f}  ·  {h.get('dtype','?')}  "
-                f"·  {h.get('horizon','?')}  {pending_badge}"
-            ):
-                col1, col2 = st.columns([3, 1])
+    if search_hyp:
+        q = search_hyp.lower()
+        all_hyps = [h for h in all_hyps if
+                    q in (h.get("title") or "").lower() or
+                    q in (h.get("thesis") or "").lower() or
+                    q in " ".join(h.get("companies") or []).lower() or
+                    q in (h.get("tech_name") or "").lower()]
 
-                with col1:
-                    st.markdown(f"**{h.get('from_name','?')} → {h.get('to_name','?')}**")
-                    st.markdown(f"**Thesis:**\n{h.get('thesis','—')}")
-                    st.markdown("---")
-                    st.markdown(f"**Counter-argument:** *{h.get('counter','—')}*")
-                    st.markdown("---")
+    new_count = len(hypotheses or [])
+    old_count  = len(old_hypotheses) if selected_tech_name == "All technologies" else 0
+    pending_count = sum(1 for h in all_hyps if h.get("pending"))
 
-                    metrics_cols = st.columns(4)
-                    metrics_cols[0].metric("Conviction", f"{conv:.2f}")
-                    metrics_cols[1].metric("Signal", f"{h.get('signal') or 0:.3f}")
-                    metrics_cols[2].metric("Opp Score", f"{h.get('opp_score') or 0:.4f}")
-                    metrics_cols[3].metric("Evidence", str(h.get("evidence_count") or 0))
+    st.markdown(
+        f"**{len(all_hyps)} hypotheses** — "
+        f"{new_count} tech-triggered · {old_count} legacy · "
+        f"🔔 {pending_count} pending review"
+    )
+
+    # ── load scalar name lookup ──
+    _scalar_rows = run_query("MATCH (s:Scalar) RETURN s.scalar_id AS id, s.name AS name")
+    scalar_names = {r["id"]: r["name"] for r in (_scalar_rows or [])}
+
+    # ── hypothesis cards ──
+    for h in all_hyps:
+        hid       = h["hid"]
+        conv      = h.get("conviction") or 0
+        activ     = h.get("activation")
+        conv_icon = "🟢" if conv >= 0.7 else ("🟡" if conv >= 0.5 else "🔴")
+        status    = h.get("status") or "Hypothesis"
+        is_legacy = h.get("tech_id") == "legacy"
+
+        status_badge = {"Validated": "✅", "Rejected": "❌", "Escalated": "⬆️",
+                        "Hypothesis": "🔔"}.get(status, "●")
+
+        tech_label = "" if is_legacy else f"⚡ {h.get('tech_name','?')}  ·  "
+        header = (
+            f"{conv_icon} {status_badge}  **{h.get('from_name','?')} → {h.get('to_name','?')}**  "
+            f"·  {tech_label}"
+            f"conviction={conv:.2f}"
+            + (f"  ·  activation={activ:.3f}" if activ is not None else "")
+            + f"  ·  {h.get('dtype','?')}  ·  {h.get('horizon','?')}"
+        )
+
+        with st.expander(header):
+            left_col, right_col = st.columns([3, 1])
+
+            with left_col:
+                # ── causal chain banner ──
+                if not is_legacy:
+                    aligned_scalars = h.get("supporting_scalars") or []
+                    primary = h.get("primary_scalar") or ""
+                    scalar_chain = []
+                    if primary:
+                        pname = scalar_names.get(primary, primary)
+                        scalar_chain.append(f"**{primary}** {pname[:45]}")
+                    for sid in (aligned_scalars or []):
+                        if sid != primary:
+                            sname = scalar_names.get(sid, sid)
+                            scalar_chain.append(f"{sid} {sname[:40]}")
 
                     st.markdown(
-                        f"**AI link:** {h.get('ai_link') or '—'}  |  "
-                        f"**Primary scalar:** {h.get('primary_scalar') or '—'}  |  "
-                        f"**Companies exposed:** {', '.join(h.get('companies') or []) or '—'}"
+                        f"<div style='background:#1a1a2e;border-left:3px solid #4a9eff;"
+                        f"padding:10px 14px;border-radius:4px;margin-bottom:12px;font-size:0.88rem'>"
+                        f"<span style='color:#4a9eff;font-weight:600'>⚡ {h.get('tech_name','')}</span>"
+                        f"<span style='color:#888'> → moves scalars → </span>"
+                        f"<span style='color:#7ec8e3'>{' · '.join(scalar_chain[:4]) or '—'}</span>"
+                        f"<span style='color:#888'> → activates </span>"
+                        f"<span style='color:#90ee90'>{h.get('from_name','?')} → {h.get('to_name','?')}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
                     )
-                    st.caption(f"Created: {h.get('created_at','')} · Status: {status}")
 
-                with col2:
-                    if h.get("pending"):
-                        if st.button("✅ Approve", key=f"hyp_approve_{h['hid']}"):
+                # ── thesis ──
+                st.markdown("**Thesis**")
+                st.markdown(h.get("thesis") or "—")
+
+                # ── counter ──
+                if h.get("counter"):
+                    st.markdown("**Counter-argument**")
+                    st.markdown(f"*{h['counter']}*")
+
+                st.divider()
+
+                # ── scalar movements detail ──
+                if not is_legacy and h.get("vid"):
+                    _mv = run_query("""
+                        MATCH (t:Technology {tech_id: $tid})-[r:MOVES_SCALAR]->(s:Scalar)
+                        OPTIONAL MATCH (v:TransformationVector {vector_id: $vid})-[imp:IMPACTS]->(s)
+                        RETURN s.scalar_id AS sid, s.name AS sname,
+                               r.direction AS tech_dir, r.strength AS tech_str,
+                               imp.direction AS vec_dir, imp.impact_score AS vec_score
+                        ORDER BY abs(r.score) DESC
+                    """, tid=h.get("tech_id"), vid=h.get("vid")) or []
+
+                    if _mv:
+                        st.markdown("**Scalar movements driving this transition**")
+                        _mv_cols = st.columns([1, 4, 2, 2, 1])
+                        _mv_cols[0].caption("Scalar")
+                        _mv_cols[1].caption("Name")
+                        _mv_cols[2].caption("Tech moves")
+                        _mv_cols[3].caption("Vector needs")
+                        _mv_cols[4].caption("Aligned?")
+                        for mv in _mv:
+                            aligned = mv.get("vec_dir") and mv.get("tech_dir") == mv.get("vec_dir")
+                            _mv_cols[0].markdown(f"`{mv['sid']}`")
+                            _mv_cols[1].markdown(mv.get("sname","")[:55])
+                            _mv_cols[2].markdown(f"{mv.get('tech_dir','')} ({mv.get('tech_str','')})")
+                            _mv_cols[3].markdown(f"{mv.get('vec_dir','—')}")
+                            _mv_cols[4].markdown("✅" if aligned else ("❌" if mv.get("vec_dir") else "—"))
+
+                st.divider()
+
+                # ── metrics ──
+                mc = st.columns(5)
+                mc[0].metric("Conviction", f"{conv:.2f}")
+                if activ is not None:
+                    mc[1].metric("Activation", f"{activ:.3f}")
+                mc[2].metric("Evidence", str(h.get("evidence_count") or 0))
+                mc[3].metric("Type", h.get("dtype") or "—")
+                mc[4].metric("Horizon", h.get("horizon") or "—")
+
+                companies_str = ", ".join(h.get("companies") or []) or "—"
+                st.caption(f"**Companies exposed:** {companies_str}")
+                st.caption(f"ID: {hid}  ·  Status: {status}  ·  Created: {h.get('created_at','')}")
+
+                # ── existing feedback ──
+                if h.get("feedback"):
+                    st.markdown(
+                        f"<div style='background:#2a1a0e;border-left:3px solid #ff9944;"
+                        f"padding:8px 12px;border-radius:4px;margin-top:8px;font-size:0.88rem'>"
+                        f"<b>📝 Feedback on file:</b> {h['feedback']}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # ── edit form ──
+                edit_key = f"hyp_edit_open_{hid}"
+                if edit_key not in st.session_state:
+                    st.session_state[edit_key] = False
+                if st.button("✏️ Edit hypothesis", key=f"hyp_edit_btn_{hid}"):
+                    st.session_state[edit_key] = not st.session_state[edit_key]
+
+                if st.session_state[edit_key]:
+                    with st.form(key=f"hyp_edit_form_{hid}"):
+                        st.markdown("**Edit Hypothesis**")
+                        new_title     = st.text_input("Title", value=h.get("title") or "", key=f"htitle_{hid}")
+                        new_thesis    = st.text_area("Thesis", value=h.get("thesis") or "", height=160, key=f"hthesis_{hid}")
+                        new_counter   = st.text_area("Counter-argument", value=h.get("counter") or "", height=80, key=f"hcounter_{hid}")
+                        new_companies_str = st.text_input(
+                            "Companies exposed (comma-separated)",
+                            value=", ".join(h.get("companies") or []),
+                            key=f"hcompanies_{hid}"
+                        )
+                        ec1, ec2, ec3 = st.columns(3)
+                        with ec1:
+                            new_dtype = st.selectbox("Disruption type",
+                                ["substitution","compression","unbundling","bundling","platform_shift","commoditisation"],
+                                index=["substitution","compression","unbundling","bundling","platform_shift","commoditisation"].index(h.get("dtype") or "substitution")
+                                    if h.get("dtype") in ["substitution","compression","unbundling","bundling","platform_shift","commoditisation"] else 0,
+                                key=f"hdtype_{hid}")
+                        with ec2:
+                            new_horizon = st.selectbox("Time horizon",
+                                ["0-2 years", "2-5 years", "5+ years"],
+                                index=["0-2 years","2-5 years","5+ years"].index(h.get("horizon") or "2-5 years")
+                                    if h.get("horizon") in ["0-2 years","2-5 years","5+ years"] else 1,
+                                key=f"hhorizon_{hid}")
+                        with ec3:
+                            new_conviction = st.slider("Conviction", 0.0, 1.0,
+                                float(h.get("conviction") or 0.5), 0.05, key=f"hconv_{hid}")
+                        new_feedback = st.text_area(
+                            "📝 Feedback / reasoning for this edit",
+                            placeholder="Why are you changing this? What evidence or instinct is driving it?",
+                            height=80, key=f"hfeedback_{hid}"
+                        )
+                        if st.form_submit_button("💾 Save changes"):
+                            now_str = datetime.now(timezone.utc).isoformat()
+                            new_companies = [c.strip() for c in new_companies_str.split(",") if c.strip()]
                             run_query("""
-                                MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
-                                SET n.pending_human_review = false,
-                                    n.status = 'Validated',
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=h["hid"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.success("Approved → Validated")
+                                MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
+                                SET h.title           = $title,
+                                    h.thesis          = $thesis,
+                                    h.counter_argument = $counter,
+                                    h.companies_exposed = $companies,
+                                    h.disruption_type = $dtype,
+                                    h.time_horizon    = $horizon,
+                                    h.conviction_score = $conviction,
+                                    h.feedback        = $feedback,
+                                    h.updated_at      = $now,
+                                    h.edited_by       = 'human_ui'
+                            """, hid=hid, title=new_title, thesis=new_thesis,
+                                counter=new_counter, companies=new_companies,
+                                dtype=new_dtype, horizon=new_horizon,
+                                conviction=new_conviction,
+                                feedback=new_feedback if new_feedback else h.get("feedback",""),
+                                now=now_str)
+                            # changelog
+                            _hyp_log = {
+                                "timestamp": now_str, "hypothesis_id": hid,
+                                "tech_id": h.get("tech_id"), "tech_name": h.get("tech_name"),
+                                "from_name": h.get("from_name"), "to_name": h.get("to_name"),
+                                "changes": {
+                                    "title": new_title, "thesis": new_thesis,
+                                    "conviction": new_conviction, "dtype": new_dtype,
+                                    "horizon": new_horizon, "companies": new_companies,
+                                },
+                                "feedback": new_feedback, "edited_by": "human_ui",
+                            }
+                            try:
+                                os.makedirs("data", exist_ok=True)
+                                with open("data/hypothesis_changelog.jsonl", "a") as _f:
+                                    _f.write(json.dumps(_hyp_log) + "\n")
+                            except Exception:
+                                pass
+                            st.success("Saved")
+                            st.session_state[edit_key] = False
                             st.rerun()
 
-                        if st.button("⬆️ Escalate", key=f"hyp_escalate_{h['hid']}"):
-                            run_query("""
-                                MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
-                                SET n.status = 'Escalated',
-                                    n.escalated_at = $now
-                            """, id=h["hid"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.warning("Escalated for deep research")
-                            st.rerun()
+            with right_col:
+                st.markdown("**Review**")
 
-                        if st.button("❌ Reject", key=f"hyp_reject_{h['hid']}"):
-                            run_query("""
-                                MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
-                                SET n.pending_human_review = false,
-                                    n.status = 'Rejected',
-                                    n.reviewed_at = $now,
-                                    n.reviewed_by = 'human_ui'
-                            """, id=h["hid"],
-                                now=datetime.now(timezone.utc).isoformat())
-                            st.error("Rejected")
-                            st.rerun()
+                if h.get("pending") or status not in ("Validated", "Rejected"):
+                    if st.button("✅ Approve", key=f"hyp_approve_{hid}"):
+                        run_query("""
+                            MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
+                            SET n.pending_human_review = false,
+                                n.status = 'Validated',
+                                n.reviewed_at = $now,
+                                n.reviewed_by = 'human_ui'
+                        """, id=hid, now=datetime.now(timezone.utc).isoformat())
+                        st.success("✅ Validated")
+                        st.rerun()
+
+                    if st.button("⬆️ More research", key=f"hyp_escalate_{hid}"):
+                        run_query("""
+                            MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
+                            SET n.status = 'Escalated',
+                                n.escalated_at = $now
+                        """, id=hid, now=datetime.now(timezone.utc).isoformat())
+                        st.warning("Sent for more research")
+                        st.rerun()
+
+                    if st.button("❌ Reject", key=f"hyp_reject_{hid}"):
+                        run_query("""
+                            MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
+                            SET n.pending_human_review = false,
+                                n.status = 'Rejected',
+                                n.reviewed_at = $now,
+                                n.reviewed_by = 'human_ui'
+                        """, id=hid, now=datetime.now(timezone.utc).isoformat())
+                        st.error("❌ Rejected")
+                        st.rerun()
+                else:
+                    st.markdown(f"**Status:** {status_badge} {status}")
+                    if st.button("↩️ Reset to pending", key=f"hyp_reset_{hid}"):
+                        run_query("""
+                            MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
+                            SET n.pending_human_review = true,
+                                n.status = 'Hypothesis'
+                        """, id=hid, now=datetime.now(timezone.utc).isoformat())
+                        st.rerun()
+
+                st.divider()
+                if not is_legacy:
+                    st.markdown(f"**Technology**")
+                    st.markdown(h.get("tech_name",""))
+                    if activ is not None:
+                        st.markdown(f"Activation: **{activ:.3f}**")
+                    st.markdown(f"**Primary scalar**")
+                    prim = h.get("primary_scalar") or "—"
+                    st.markdown(f"`{prim}` {scalar_names.get(prim,'')[:40]}")
 
 
 # ── Page: Top Opportunities ───────────────────────────────────────────────────
