@@ -519,122 +519,232 @@ elif page == "🔀 Transition Case Studies":
         tc_sort = st.selectbox("Sort by", ["Signal strength", "Confidence", "Newest first"],
                                 key="tc_sort")
 
-    # ── Load all case studies ─────────────────────────────────────────────────
-    sort_clause = {
-        "Signal strength":  "ORDER BY v.signal_strength DESC, e.confidence DESC",
-        "Confidence":       "ORDER BY e.confidence DESC",
-        "Newest first":     "ORDER BY e.extracted_at DESC",
+    # ── Load vectors (one per unique from→to pair) ────────────────────────────
+    vec_sort = {
+        "Signal strength": "ORDER BY v.signal_strength DESC",
+        "Confidence":      "ORDER BY avg_conf DESC",
+        "Newest first":    "ORDER BY newest DESC",
     }[tc_sort]
 
-    from_filter  = "" if tc_from == "All" else "AND f.name = $from_bm"
-    to_filter    = "" if tc_to   == "All" else "AND t.name = $to_bm"
+    from_filter = "" if tc_from == "All" else "AND f.name = $from_bm"
+    to_filter   = "" if tc_to   == "All" else "AND t.name = $to_bm"
 
-    cases = run_query(f"""
-        MATCH (e:Evidence)-[:SUPPORTS]->(v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
+    vectors = run_query(f"""
+        MATCH (v:TransformationVector)-[:FROM_BIM]->(f:BusinessModel)
         MATCH (v)-[:TO_BIM]->(t:BusinessModel)
         WHERE 1=1 {from_filter} {to_filter}
         OPTIONAL MATCH (h:DisruptionHypothesis)-[:GENERATED_FROM]->(v)
-        WITH e, v, f, t, h,
-             size([(sc:Scalar)<-[:IMPACTS]-(v)|sc]) AS scalar_count
-        RETURN e.evidence_id          AS eid,
-               e.companies_mentioned  AS companies,
-               e.transition_summary   AS summary,
-               e.evidence_quote       AS quote,
-               e.source_url           AS url,
-               e.source_type          AS stype,
-               e.confidence           AS conf,
-               e.extracted_at         AS extracted_at,
-               v.vector_id            AS vid,
-               v.signal_strength      AS signal,
-               v.opportunity_score    AS opp,
-               f.name                 AS from_bm,
-               f.bim_id               AS from_id,
-               t.name                 AS to_bm,
-               t.bim_id               AS to_id,
+        WITH v, f, t, h,
+             size([(sc:Scalar)<-[:IMPACTS]-(v)|sc]) AS scalar_count,
+             size([(e2:Evidence)-[:SUPPORTS]->(v)|e2])  AS evidence_count,
+             avg([(e2:Evidence)-[:SUPPORTS]->(v)|e2.confidence][0]) AS avg_conf,
+             max([(e2:Evidence)-[:SUPPORTS]->(v)|e2.extracted_at][0]) AS newest,
+             [e2 IN [(e2:Evidence)-[:SUPPORTS]->(v)|e2] | e2.companies_mentioned] AS all_companies_raw
+        RETURN v.vector_id         AS vid,
+               v.signal_strength   AS signal,
+               v.opportunity_score AS opp,
+               f.name              AS from_bm,
+               f.bim_id            AS from_id,
+               t.name              AS to_bm,
+               t.bim_id            AS to_id,
                scalar_count,
-               h.hypothesis_id        AS hyp_id,
-               h.title                AS hyp_title,
-               h.conviction_score     AS conviction,
-               h.thesis               AS thesis,
-               h.counter_argument     AS counter,
-               h.disruption_type      AS dtype,
-               h.time_horizon         AS horizon,
-               h.ai_disruption_link   AS ai_link
-        {sort_clause}
+               evidence_count,
+               avg_conf,
+               newest,
+               all_companies_raw,
+               h.hypothesis_id     AS hyp_id,
+               h.title             AS hyp_title,
+               h.conviction_score  AS conviction,
+               h.thesis            AS thesis,
+               h.counter_argument  AS counter,
+               h.disruption_type   AS dtype,
+               h.time_horizon      AS horizon,
+               h.ai_disruption_link AS ai_link
+        {vec_sort}
     """, from_bm=tc_from, to_bm=tc_to)
 
-    # Apply text search
+    # Flatten all_companies_raw (list of lists) into a single deduped list per vector
+    def flatten_companies(raw):
+        seen, out = set(), []
+        for item in (raw or []):
+            names = item if isinstance(item, list) else ([item] if item else [])
+            for n in names:
+                if n and n not in seen:
+                    seen.add(n)
+                    out.append(n)
+        return out
+
+    # Apply text search across companies, from/to BM names
     if tc_search:
         q = tc_search.lower()
-        cases = [c for c in cases if
-                 q in " ".join(c.get("companies") or []).lower()
-                 or q in (c.get("summary") or "").lower()
-                 or q in (c.get("quote") or "").lower()
-                 or q in (c.get("from_bm") or "").lower()
-                 or q in (c.get("to_bm") or "").lower()]
+        vectors = [v for v in vectors if
+                   q in " ".join(flatten_companies(v.get("all_companies_raw"))).lower()
+                   or q in (v.get("from_bm") or "").lower()
+                   or q in (v.get("to_bm") or "").lower()]
 
     st.divider()
-    st.caption(f"{len(cases)} case studies found")
+    st.caption(f"{len(vectors)} transition vectors · "
+               f"{sum(v.get('evidence_count') or 0 for v in vectors)} evidence nodes")
 
-    if not cases:
+    if not vectors:
         st.info("No case studies match your filters.")
     else:
-        for case in cases:
-            companies = case.get("companies") or []
-            if isinstance(companies, str):
-                try:
-                    companies = json.loads(companies)
-                except Exception:
-                    companies = [companies]
-            company_str = ", ".join(companies) if companies else "Unknown company"
-            conf        = case.get("conf") or 0
-            signal      = case.get("signal") or 0
-            opp         = case.get("opp") or 0
-            eid         = case.get("eid") or ""
-            vid         = case.get("vid") or ""
-            has_hyp     = bool(case.get("hyp_id"))
+        DIRECTION_OPTIONS = ["increases", "neutral", "decreases"]
+        STRENGTH_OPTIONS  = ["strong", "moderate", "weak"]
+        IMPACT_SCORE_MAP  = {
+            ("increases", "strong"):   2,
+            ("increases", "moderate"): 1,
+            ("neutral",   "strong"):   0,
+            ("neutral",   "moderate"): 0,
+            ("neutral",   "weak"):     0,
+            ("decreases", "moderate"): -1,
+            ("decreases", "strong"):   -2,
+        }
 
-            # Card header
-            card_label = f"🏢 {company_str}  ·  {case['from_bm']} → {case['to_bm']}"
+        for vec in vectors:
+            vid     = vec.get("vid") or ""
+            signal  = vec.get("signal") or 0
+            opp     = vec.get("opp") or 0
+            has_hyp = bool(vec.get("hyp_id"))
+            ev_count = vec.get("evidence_count") or 0
+            sc_count = vec.get("scalar_count") or 0
+
+            all_companies = flatten_companies(vec.get("all_companies_raw"))
+            company_str   = ", ".join(all_companies) if all_companies else "Unknown"
+
+            card_label = f"🏢 {company_str}  ·  {vec['from_bm']} → {vec['to_bm']}"
             with st.expander(card_label, expanded=False):
 
                 # ── Stat row ──────────────────────────────────────────────────
                 s1, s2, s3, s4 = st.columns(4)
                 s1.metric("Signal", f"{signal:.3f}")
-                s2.metric("Confidence", f"{conf:.2f}")
-                s3.metric("Scalars", case.get("scalar_count") or 0)
-                s4.metric("Hypothesis", "✅ Yes" if has_hyp else "—")
+                s2.metric("Opp score", f"{opp:.3f}" if opp else "—")
+                s3.metric("Scalars", sc_count)
+                s4.metric("Evidence nodes", ev_count)
 
                 st.divider()
 
-                # ── The Story ─────────────────────────────────────────────────
-                st.markdown("#### 📖 The Story")
-                summary = case.get("summary") or ""
-                st.markdown(summary if summary else "_No summary available_")
+                # ── Evidence nodes ────────────────────────────────────────────
+                evidence_rows = run_query("""
+                    MATCH (e:Evidence)-[:SUPPORTS]->(v:TransformationVector {vector_id: $vid})
+                    RETURN e.evidence_id         AS eid,
+                           e.companies_mentioned AS companies,
+                           e.transition_summary  AS summary,
+                           e.evidence_quote      AS quote,
+                           e.source_url          AS url,
+                           e.source_type         AS stype,
+                           e.confidence          AS conf
+                    ORDER BY e.confidence DESC
+                """, vid=vid)
 
-                quote = case.get("quote") or ""
-                if quote and quote.strip() != summary.strip():
-                    st.markdown(f"> \"{quote}\"")
+                st.markdown(f"#### 📖 Evidence ({len(evidence_rows)} source{'s' if len(evidence_rows) != 1 else ''})")
+                for ev in evidence_rows:
+                    eid  = ev.get("eid") or ""
+                    conf = ev.get("conf") or 0
+                    cos  = ev.get("companies") or []
+                    if isinstance(cos, str):
+                        try: cos = json.loads(cos)
+                        except Exception: cos = [cos]
+                    ev_company_str = ", ".join(cos) if cos else "Unknown"
 
-                src = case.get("url") or ""
-                if src:
-                    st.caption(f"🔗 Source: [{src[:80]}]({src})  ·  {case.get('stype') or ''}")
+                    ev_col1, ev_col2 = st.columns([5, 1])
+                    with ev_col1:
+                        summary = ev.get("summary") or ""
+                        st.markdown(f"**🏢 {ev_company_str}** — {summary[:200] if summary else '_No summary_'}")
+                        quote = ev.get("quote") or ""
+                        if quote and quote.strip() != summary.strip():
+                            st.markdown(f"> \"{quote[:300]}\"")
+                        src = ev.get("url") or ""
+                        if src:
+                            st.caption(f"🔗 [{src[:70]}]({src})  ·  {ev.get('stype') or ''}")
+                    with ev_col2:
+                        st.caption(f"conf: {conf:.2f}")
+
+                    # Per-evidence edit form (toggle)
+                    ev_edit_key = f"show_ev_edit_{eid}"
+                    if ev_edit_key not in st.session_state:
+                        st.session_state[ev_edit_key] = False
+                    if st.button("✏️ Edit", key=f"btn_ev_edit_{eid}"):
+                        st.session_state[ev_edit_key] = not st.session_state[ev_edit_key]
+
+                    if st.session_state[ev_edit_key]:
+                        with st.form(key=f"tc_edit_{eid}"):
+                            new_companies = st.text_input(
+                                "Companies involved (comma-separated)",
+                                value=", ".join(cos),
+                            )
+                            new_summary = st.text_area(
+                                "Transition story / summary",
+                                value=summary, height=100,
+                            )
+                            flag_wrong = st.checkbox("🚩 Flag as incorrect transition (wrong From/To BM)")
+                            correct_from = correct_to = ""
+                            if flag_wrong:
+                                correct_from = st.text_input("Correct 'From' BM", placeholder="e.g. Licensing")
+                                correct_to   = st.text_input("Correct 'To' BM",   placeholder="e.g. SaaS")
+                            edit_reason = st.text_area(
+                                "🧠 Why are you making this change?", height=70,
+                                placeholder="e.g. 'Cisco's transition was to Software Licensing, not pure Subscription.'",
+                            )
+                            tc_submitted = st.form_submit_button("💾 Save", type="primary")
+                            if tc_submitted:
+                                if not edit_reason.strip():
+                                    st.error("Please explain the reason.")
+                                else:
+                                    now = datetime.now(timezone.utc).isoformat()
+                                    new_co_list = [c.strip() for c in new_companies.split(",") if c.strip()]
+                                    run_query("""
+                                        MATCH (e:Evidence {evidence_id: $eid})
+                                        SET e.companies_mentioned = $companies,
+                                            e.transition_summary  = $summary,
+                                            e.last_edited_at      = $now,
+                                            e.last_edited_by      = 'editorial'
+                                    """, eid=eid, companies=new_co_list, summary=new_summary, now=now)
+                                    tc_append({
+                                        "evidence_id":   eid,
+                                        "vector_id":     vid,
+                                        "from_bm":       vec["from_bm"],
+                                        "to_bm":         vec["to_bm"],
+                                        "timestamp":     now,
+                                        "change_type":   "evidence_edit",
+                                        "old_companies": cos,
+                                        "new_companies": new_co_list,
+                                        "old_summary":   summary,
+                                        "new_summary":   new_summary,
+                                        "flagged_wrong": flag_wrong,
+                                        "correct_from":  correct_from,
+                                        "correct_to":    correct_to,
+                                        "reason":        edit_reason.strip(),
+                                    })
+                                    flag_msg = f" ⚠️ Flagged ({correct_from} → {correct_to})" if flag_wrong else ""
+                                    st.success(f"✅ Updated.{flag_msg}")
+                                    st.session_state[ev_edit_key] = False
+                                    st.rerun()
+
+                    # Edit history for this evidence node
+                    ev_history = tc_load(eid)
+                    if ev_history:
+                        for h in reversed(ev_history):
+                            flag_note = " 🚩" if h.get("flagged_wrong") else ""
+                            st.caption(f"_Edited {h.get('timestamp','')[:16]}{flag_note}: {h.get('reason','')[:100]}_")
+
+                    st.markdown("---")
 
                 # ── Scalars ───────────────────────────────────────────────────
                 scalars = run_query("""
                     MATCH (v:TransformationVector {vector_id: $vid})-[r:IMPACTS]->(sc:Scalar)
-                    RETURN sc.scalar_id    AS scalar_id,
-                           sc.name        AS name,
-                           r.direction    AS direction,
-                           r.impact_strength AS strength,
-                           r.impact_score AS score,
-                           r.rationale    AS rationale
+                    RETURN sc.scalar_id       AS scalar_id,
+                           sc.name            AS name,
+                           r.direction        AS direction,
+                           r.impact_strength  AS strength,
+                           r.impact_score     AS score,
+                           r.rationale        AS rationale
                     ORDER BY r.impact_score DESC
                 """, vid=vid)
 
                 if scalars:
                     st.markdown("#### ⚙️ Causal Forces (Scalars)")
-                    st.caption("The conditions that are pushing / pulling this transition")
+                    st.caption("The conditions pushing / pulling this transition")
                     for sc in scalars:
                         score    = sc.get("score") or 0
                         arrow    = "⬆️" if sc.get("direction") == "increases" else "⬇️"
@@ -649,27 +759,15 @@ elif page == "🔀 Transition Case Studies":
                             color = "green" if score and score > 0 else "red"
                             st.markdown(f":{color}[**{strength}** ({'+' if score and score > 0 else ''}{score})]")
 
-                    # ── Scalar edit toggle ─────────────────────────────────────
-                    sc_edit_key  = f"show_sc_edit_{eid}"
-                    sc_edit_btn  = f"btn_sc_edit_{eid}"
+                    # Scalar edit toggle (keyed on vid, not eid)
+                    sc_edit_key = f"show_sc_edit_{vid}"
                     if sc_edit_key not in st.session_state:
                         st.session_state[sc_edit_key] = False
-                    if st.button("✏️ Edit scalars", key=sc_edit_btn):
+                    if st.button("✏️ Edit scalars", key=f"btn_sc_edit_{vid}"):
                         st.session_state[sc_edit_key] = not st.session_state[sc_edit_key]
 
                     if st.session_state[sc_edit_key]:
-                        DIRECTION_OPTIONS = ["increases", "neutral", "decreases"]
-                        STRENGTH_OPTIONS  = ["strong", "moderate", "weak"]
-                        IMPACT_SCORE_MAP  = {
-                            ("increases", "strong"):   2,
-                            ("increases", "moderate"): 1,
-                            ("neutral",   "weak"):     0,
-                            ("neutral",   "moderate"): 0,
-                            ("neutral",   "strong"):   0,
-                            ("decreases", "moderate"): -1,
-                            ("decreases", "strong"):   -2,
-                        }
-                        with st.form(key=f"sc_edit_form_{eid}"):
+                        with st.form(key=f"sc_edit_form_{vid}"):
                             st.markdown("**Edit scalar directions and rationale:**")
                             sc_edits = []
                             for sc in scalars:
@@ -678,22 +776,18 @@ elif page == "🔀 Transition Case Studies":
                                 cur_dir = sc.get("direction") or "increases"
                                 cur_str = sc.get("strength") or "moderate"
                                 new_dir = ec1.selectbox(
-                                    "Direction",
-                                    DIRECTION_OPTIONS,
+                                    "Direction", DIRECTION_OPTIONS,
                                     index=DIRECTION_OPTIONS.index(cur_dir) if cur_dir in DIRECTION_OPTIONS else 0,
-                                    key=f"sc_dir_{eid}_{sc['scalar_id']}",
+                                    key=f"sc_dir_{vid}_{sc['scalar_id']}",
                                 )
                                 new_str = ec2.selectbox(
-                                    "Strength",
-                                    STRENGTH_OPTIONS,
+                                    "Strength", STRENGTH_OPTIONS,
                                     index=STRENGTH_OPTIONS.index(cur_str) if cur_str in STRENGTH_OPTIONS else 1,
-                                    key=f"sc_str_{eid}_{sc['scalar_id']}",
+                                    key=f"sc_str_{vid}_{sc['scalar_id']}",
                                 )
                                 new_rat = st.text_area(
-                                    "Rationale",
-                                    value=sc.get("rationale") or "",
-                                    height=70,
-                                    key=f"sc_rat_{eid}_{sc['scalar_id']}",
+                                    "Rationale", value=sc.get("rationale") or "",
+                                    height=70, key=f"sc_rat_{vid}_{sc['scalar_id']}",
                                 )
                                 sc_edits.append({
                                     "scalar_id": sc["scalar_id"],
@@ -702,23 +796,18 @@ elif page == "🔀 Transition Case Studies":
                                     "new_rat": new_rat,
                                 })
                                 st.divider()
-
                             sc_reason = st.text_area(
-                                "🧠 Why are you correcting these scalars?",
-                                height=70,
-                                placeholder="e.g. 'The direction of marginal cost was inverted — streaming lowers cost, not increases it.'",
+                                "🧠 Why are you correcting these scalars?", height=70,
+                                placeholder="e.g. 'The marginal cost direction was inverted.'",
                             )
                             sc_submitted = st.form_submit_button("💾 Save scalar edits", type="primary")
-
                             if sc_submitted:
                                 if not sc_reason.strip():
                                     st.error("Please explain your reason.")
                                 else:
                                     now = datetime.now(timezone.utc).isoformat()
                                     for ed in sc_edits:
-                                        new_score = IMPACT_SCORE_MAP.get(
-                                            (ed["new_dir"], ed["new_str"]), 0
-                                        )
+                                        new_score = IMPACT_SCORE_MAP.get((ed["new_dir"], ed["new_str"]), 0)
                                         run_query("""
                                             MATCH (v:TransformationVector {vector_id: $vid})
                                                   -[r:IMPACTS]->(sc:Scalar {scalar_id: $sid})
@@ -732,17 +821,14 @@ elif page == "🔀 Transition Case Studies":
                                             dir=ed["new_dir"], strength=ed["new_str"],
                                             score=new_score, rationale=ed["new_rat"], now=now)
                                     tc_append({
-                                        "evidence_id":  eid,
                                         "vector_id":    vid,
-                                        "from_bm":      case["from_bm"],
-                                        "to_bm":        case["to_bm"],
+                                        "from_bm":      vec["from_bm"],
+                                        "to_bm":        vec["to_bm"],
                                         "timestamp":    now,
                                         "change_type":  "scalar_edit",
-                                        "scalar_edits": [{
-                                            "scalar_id": ed["scalar_id"],
-                                            "direction": ed["new_dir"],
-                                            "strength":  ed["new_str"],
-                                        } for ed in sc_edits],
+                                        "scalar_edits": [{"scalar_id": ed["scalar_id"],
+                                                          "direction": ed["new_dir"],
+                                                          "strength":  ed["new_str"]} for ed in sc_edits],
                                         "reason": sc_reason.strip(),
                                     })
                                     st.success(f"✅ {len(sc_edits)} scalar(s) updated.")
@@ -753,102 +839,21 @@ elif page == "🔀 Transition Case Studies":
                 if has_hyp:
                     st.markdown("#### 💡 Disruption Hypothesis")
                     hcol1, hcol2, hcol3 = st.columns(3)
-                    hcol1.metric("Conviction", f"{case.get('conviction') or 0:.2f}")
-                    hcol2.metric("Type", case.get("dtype") or "—")
-                    hcol3.metric("Horizon", case.get("horizon") or "—")
-
-                    if case.get("hyp_title"):
-                        st.markdown(f"**{case['hyp_title']}**")
-                    thesis = case.get("thesis") or ""
+                    hcol1.metric("Conviction", f"{vec.get('conviction') or 0:.2f}")
+                    hcol2.metric("Type", vec.get("dtype") or "—")
+                    hcol3.metric("Horizon", vec.get("horizon") or "—")
+                    if vec.get("hyp_title"):
+                        st.markdown(f"**{vec['hyp_title']}**")
+                    thesis = vec.get("thesis") or ""
                     if thesis:
                         st.markdown(thesis)
-                    counter = case.get("counter") or ""
+                    counter = vec.get("counter") or ""
                     if counter:
                         st.markdown("**⚠️ Counter-argument:**")
                         st.markdown(f"_{counter}_")
-                    ai_link = case.get("ai_link") or ""
+                    ai_link = vec.get("ai_link") or ""
                     if ai_link:
                         st.markdown(f"**🤖 AI link:** {ai_link}")
-
-                st.divider()
-
-                # ── Edit form ─────────────────────────────────────────────────
-                st.markdown("#### ✏️ Edit this Case Study")
-                with st.form(key=f"tc_edit_{eid}"):
-                    new_companies = st.text_input(
-                        "Companies involved (comma-separated)",
-                        value=", ".join(companies),
-                        help="Who made this transition?"
-                    )
-                    new_summary = st.text_area(
-                        "Transition story / summary",
-                        value=summary, height=120,
-                        help="Describe what happened — what drove the company to change its model"
-                    )
-                    flag_wrong = st.checkbox(
-                        "🚩 Flag this transition as incorrect (wrong From/To BM)",
-                        help="Use this if the system misclassified the model transition"
-                    )
-                    if flag_wrong:
-                        correct_from = st.text_input("Correct 'From' BM (if wrong)", placeholder="e.g. Licensing")
-                        correct_to   = st.text_input("Correct 'To' BM (if wrong)", placeholder="e.g. SaaS")
-                    else:
-                        correct_from = ""
-                        correct_to   = ""
-
-                    edit_reason = st.text_area(
-                        "🧠 Why are you making this change?",
-                        height=80,
-                        placeholder="e.g. 'Netflix moved to Content Production, not Layer Player — the system confused content ownership with layer specialisation.'",
-                        help="Stored in changelog and used to improve future extraction"
-                    )
-
-                    tc_submitted = st.form_submit_button("💾 Save changes", type="primary")
-
-                    if tc_submitted:
-                        if not edit_reason.strip():
-                            st.error("Please explain the reason — this trains the extraction logic.")
-                        else:
-                            now = datetime.now(timezone.utc).isoformat()
-                            new_co_list = [c.strip() for c in new_companies.split(",") if c.strip()]
-
-                            # Write back to graph
-                            run_query("""
-                                MATCH (e:Evidence {evidence_id: $eid})
-                                SET e.companies_mentioned = $companies,
-                                    e.transition_summary  = $summary,
-                                    e.last_edited_at      = $now,
-                                    e.last_edited_by      = 'editorial'
-                            """, eid=eid, companies=new_co_list, summary=new_summary, now=now)
-
-                            # Log the change
-                            tc_append({
-                                "evidence_id":   eid,
-                                "vector_id":     vid,
-                                "from_bm":       case["from_bm"],
-                                "to_bm":         case["to_bm"],
-                                "timestamp":     now,
-                                "old_companies": companies,
-                                "new_companies": new_co_list,
-                                "old_summary":   summary,
-                                "new_summary":   new_summary,
-                                "flagged_wrong": flag_wrong,
-                                "correct_from":  correct_from,
-                                "correct_to":    correct_to,
-                                "reason":        edit_reason.strip(),
-                            })
-
-                            flag_msg = f" | ⚠️ Flagged as wrong transition ({correct_from} → {correct_to})" if flag_wrong else ""
-                            st.success(f"✅ Case study updated and logged.{flag_msg}")
-                            st.rerun()
-
-                # ── Edit history ──────────────────────────────────────────────
-                history = tc_load(eid)
-                if history:
-                    st.markdown(f"**📋 Edit history ({len(history)} change{'s' if len(history)>1 else ''})**")
-                    for h in reversed(history):
-                        flag_note = " 🚩 *flagged as wrong transition*" if h.get("flagged_wrong") else ""
-                        st.caption(f"**{h.get('timestamp','')[:19]}**{flag_note} — {h.get('reason','')[:120]}")
 
     # ── Global transition changelog ───────────────────────────────────────────
     st.divider()
