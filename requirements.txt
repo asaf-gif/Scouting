@@ -1,0 +1,25 @@
+# Core graph database
+neo4j==5.18.0
+
+# LLM
+anthropic>=0.40.0
+
+# Configuration
+python-dotenv==1.0.1
+
+# HTTP & web search
+requests==2.31.0
+tavily-python==0.3.3
+
+# Data processing
+pandas==2.2.1
+openpyxl==3.1.2
+
+# UI
+streamlit==1.33.0
+
+# Embeddings for deduplication (Part 8)
+numpy==1.26.4
+
+# CLI display
+rich==13.7.1

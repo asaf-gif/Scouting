@@ -1,0 +1,22 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.DS_Store
+
+# Operational logs (append-only, not code)
+data/error_log.jsonl
+data/bm_changelog.jsonl
+data/transition_changelog.jsonl
+data/snapshots/
+
+# Cache files
+scripts/bmn_companies_cache.json
+
+# gstack tooling
+.gstack/
+
+# Test output
+.pytest_cache/
+*.egg-info/
