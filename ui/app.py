@@ -623,7 +623,8 @@ elif page == "🔀 Transition Case Studies":
                 # ── Scalars ───────────────────────────────────────────────────
                 scalars = run_query("""
                     MATCH (v:TransformationVector {vector_id: $vid})-[r:IMPACTS]->(sc:Scalar)
-                    RETURN sc.name        AS name,
+                    RETURN sc.scalar_id    AS scalar_id,
+                           sc.name        AS name,
                            r.direction    AS direction,
                            r.impact_strength AS strength,
                            r.impact_score AS score,
@@ -647,6 +648,106 @@ elif page == "🔀 Transition Case Studies":
                         with col_sc2:
                             color = "green" if score and score > 0 else "red"
                             st.markdown(f":{color}[**{strength}** ({'+' if score and score > 0 else ''}{score})]")
+
+                    # ── Scalar edit toggle ─────────────────────────────────────
+                    sc_edit_key  = f"show_sc_edit_{eid}"
+                    sc_edit_btn  = f"btn_sc_edit_{eid}"
+                    if sc_edit_key not in st.session_state:
+                        st.session_state[sc_edit_key] = False
+                    if st.button("✏️ Edit scalars", key=sc_edit_btn):
+                        st.session_state[sc_edit_key] = not st.session_state[sc_edit_key]
+
+                    if st.session_state[sc_edit_key]:
+                        DIRECTION_OPTIONS = ["increases", "neutral", "decreases"]
+                        STRENGTH_OPTIONS  = ["strong", "moderate", "weak"]
+                        IMPACT_SCORE_MAP  = {
+                            ("increases", "strong"):   2,
+                            ("increases", "moderate"): 1,
+                            ("neutral",   "weak"):     0,
+                            ("neutral",   "moderate"): 0,
+                            ("neutral",   "strong"):   0,
+                            ("decreases", "moderate"): -1,
+                            ("decreases", "strong"):   -2,
+                        }
+                        with st.form(key=f"sc_edit_form_{eid}"):
+                            st.markdown("**Edit scalar directions and rationale:**")
+                            sc_edits = []
+                            for sc in scalars:
+                                st.markdown(f"**{sc['name'][:80]}**")
+                                ec1, ec2 = st.columns(2)
+                                cur_dir = sc.get("direction") or "increases"
+                                cur_str = sc.get("strength") or "moderate"
+                                new_dir = ec1.selectbox(
+                                    "Direction",
+                                    DIRECTION_OPTIONS,
+                                    index=DIRECTION_OPTIONS.index(cur_dir) if cur_dir in DIRECTION_OPTIONS else 0,
+                                    key=f"sc_dir_{eid}_{sc['scalar_id']}",
+                                )
+                                new_str = ec2.selectbox(
+                                    "Strength",
+                                    STRENGTH_OPTIONS,
+                                    index=STRENGTH_OPTIONS.index(cur_str) if cur_str in STRENGTH_OPTIONS else 1,
+                                    key=f"sc_str_{eid}_{sc['scalar_id']}",
+                                )
+                                new_rat = st.text_area(
+                                    "Rationale",
+                                    value=sc.get("rationale") or "",
+                                    height=70,
+                                    key=f"sc_rat_{eid}_{sc['scalar_id']}",
+                                )
+                                sc_edits.append({
+                                    "scalar_id": sc["scalar_id"],
+                                    "new_dir": new_dir,
+                                    "new_str": new_str,
+                                    "new_rat": new_rat,
+                                })
+                                st.divider()
+
+                            sc_reason = st.text_area(
+                                "🧠 Why are you correcting these scalars?",
+                                height=70,
+                                placeholder="e.g. 'The direction of marginal cost was inverted — streaming lowers cost, not increases it.'",
+                            )
+                            sc_submitted = st.form_submit_button("💾 Save scalar edits", type="primary")
+
+                            if sc_submitted:
+                                if not sc_reason.strip():
+                                    st.error("Please explain your reason.")
+                                else:
+                                    now = datetime.now(timezone.utc).isoformat()
+                                    for ed in sc_edits:
+                                        new_score = IMPACT_SCORE_MAP.get(
+                                            (ed["new_dir"], ed["new_str"]), 0
+                                        )
+                                        run_query("""
+                                            MATCH (v:TransformationVector {vector_id: $vid})
+                                                  -[r:IMPACTS]->(sc:Scalar {scalar_id: $sid})
+                                            SET r.direction       = $dir,
+                                                r.impact_strength = $strength,
+                                                r.impact_score    = $score,
+                                                r.rationale       = $rationale,
+                                                r.edited_at       = $now,
+                                                r.edited_by       = 'editorial'
+                                        """, vid=vid, sid=ed["scalar_id"],
+                                            dir=ed["new_dir"], strength=ed["new_str"],
+                                            score=new_score, rationale=ed["new_rat"], now=now)
+                                    tc_append({
+                                        "evidence_id":  eid,
+                                        "vector_id":    vid,
+                                        "from_bm":      case["from_bm"],
+                                        "to_bm":        case["to_bm"],
+                                        "timestamp":    now,
+                                        "change_type":  "scalar_edit",
+                                        "scalar_edits": [{
+                                            "scalar_id": ed["scalar_id"],
+                                            "direction": ed["new_dir"],
+                                            "strength":  ed["new_str"],
+                                        } for ed in sc_edits],
+                                        "reason": sc_reason.strip(),
+                                    })
+                                    st.success(f"✅ {len(sc_edits)} scalar(s) updated.")
+                                    st.session_state[sc_edit_key] = False
+                                    st.rerun()
 
                 # ── Hypothesis ────────────────────────────────────────────────
                 if has_hyp:
