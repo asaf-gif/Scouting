@@ -2073,32 +2073,36 @@ elif page == "🏢 Companies":
                                 + (f"  \n[Source]({ev['url']})" if ev.get("url") else "")
                             )
 
-                    # disruption exposure
-                    if primary_bim:
-                        _vectors = run_query("""
-                            MATCH (v:TransformationVector)-[:FROM_BIM]->(b:BusinessModel {bim_id: $bid})
-                            MATCH (v)-[:TO_BIM]->(t:BusinessModel)
-                            OPTIONAL MATCH (tech:Technology)-[act:ACTIVATES]->(v)
-                            WITH v, t, tech, act
-                            ORDER BY act.activation_score DESC
-                            WITH v, t, head(collect({tech: tech.name, score: act.activation_score})) AS top_tech
-                            WHERE top_tech.score >= 0.5
-                            RETURN t.name AS to_bm, top_tech.tech AS tech_name,
-                                   top_tech.score AS activation_score
-                            ORDER BY activation_score DESC
-                            LIMIT 4
-                        """, bid=primary_bim["bim_id"]) or []
-                        if _vectors:
-                            st.divider()
-                            st.markdown("**⚠️ Disruption exposure** (from primary BM)")
-                            for dv in _vectors:
-                                score = dv.get("activation_score") or 0
-                                color = "🔴" if score >= 0.8 else "🟡"
-                                st.markdown(
-                                    f"{color} → **{dv.get('to_bm','?')}**  "
-                                    f"·  ⚡ {dv.get('tech_name','?')}  "
-                                    f"·  activation={score:.2f}"
-                                )
+                    # disruption exposure — linked hypotheses
+                    _hyp_links = run_query("""
+                        MATCH (c:Company {company_id: $cid})-[:EXPOSED_TO]->(h:DisruptionHypothesis)
+                        MATCH (h)-[:TRIGGERED_BY]->(tech:Technology)
+                        OPTIONAL MATCH (to_bm:BusinessModel {bim_id: h.to_bim_id})
+                        RETURN h.hypothesis_id AS hid,
+                               h.title AS title,
+                               h.conviction_score AS conviction,
+                               h.disruption_type AS dtype,
+                               h.time_horizon AS horizon,
+                               tech.name AS tech_name,
+                               to_bm.name AS to_bm
+                        ORDER BY h.conviction_score DESC
+                        LIMIT 5
+                    """, cid=cid) or []
+                    if _hyp_links:
+                        st.divider()
+                        st.markdown(f"**⚠️ Disruption hypotheses ({len(_hyp_links)})**")
+                        for dh in _hyp_links:
+                            conv  = dh.get("conviction") or 0
+                            icon  = "🔴" if conv >= 0.7 else "🟡"
+                            st.markdown(
+                                f"{icon} → **{dh.get('to_bm','?')}**  "
+                                f"·  ⚡ {dh.get('tech_name','?')}  "
+                                f"·  conviction={conv:.2f}  "
+                                f"·  {dh.get('dtype','?')}  "
+                                f"·  {dh.get('horizon','?')}  \n"
+                                f"<span style='font-size:0.8rem;color:#aaa'>{(dh.get('title') or '')[:80]}</span>",
+                                unsafe_allow_html=True,
+                            )
 
                 with right:
                     st.metric("Ticker", co.get("ticker") or "—")
@@ -2560,8 +2564,33 @@ elif page == "🧠 Hypotheses":
                 mc[3].metric("Type", h.get("dtype") or "—")
                 mc[4].metric("Horizon", h.get("horizon") or "—")
 
+                # ── companies in our database exposed to this hypothesis ──
+                _linked_cos = run_query("""
+                    MATCH (c:Company)-[r:EXPOSED_TO]->(h:DisruptionHypothesis {hypothesis_id: $hid})
+                    OPTIONAL MATCH (c)-[:OPERATES_AS {is_primary: true}]->(b:BusinessModel)
+                    RETURN c.company_id AS cid, c.name AS name, c.ticker AS ticker,
+                           c.revenue_range AS rev, b.name AS bm,
+                           r.reason AS reason
+                    ORDER BY c.name
+                """, hid=hid) or []
+
+                if _linked_cos:
+                    st.markdown(f"**🏢 Companies in our database exposed ({len(_linked_cos)})**")
+                    # Display as compact grid of badges
+                    _badge_rows = [_linked_cos[i:i+3] for i in range(0, len(_linked_cos), 3)]
+                    for _row in _badge_rows:
+                        _bcols = st.columns(3)
+                        for _ci, _co in enumerate(_row):
+                            _ticker = f" `{_co['ticker']}`" if _co.get("ticker") else ""
+                            _rev    = f"  ·  {_co['rev']}" if _co.get("rev") else ""
+                            _bcols[_ci].markdown(
+                                f"**{_co['name']}**{_ticker}  \n"
+                                f"<span style='font-size:0.8rem;color:#888'>{_co.get('bm','')[:35]}{_rev}</span>",
+                                unsafe_allow_html=True,
+                            )
+
                 companies_str = ", ".join(h.get("companies") or []) or "—"
-                st.caption(f"**Companies exposed:** {companies_str}")
+                st.caption(f"**Mentioned in thesis:** {companies_str}")
                 st.caption(f"ID: {hid}  ·  Status: {status}  ·  Created: {h.get('created_at','')}")
 
                 # ── existing feedback ──
