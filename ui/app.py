@@ -6,6 +6,14 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# ── Shared data root ──────────────────────────────────────────────────────────
+# If SHARED_DATA_PATH is set (e.g. pointing to a synced Google Drive folder),
+# all changelog / log files are written there so the whole team shares them.
+# Falls back to the local ./data/ directory if not set.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_ROOT  = os.getenv("SHARED_DATA_PATH", os.path.join(_REPO_ROOT, "data"))
+os.makedirs(DATA_ROOT, exist_ok=True)
+
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
@@ -38,33 +46,47 @@ st.sidebar.title("Problem Scouting")
 st.sidebar.caption("Multi-agent disruption tracker")
 st.sidebar.divider()
 
-page = st.sidebar.radio(
-    "Navigate",
-    ["📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
-     "⚡ Scalars", "🔬 Technologies", "🧠 Hypotheses", "🏢 Companies",
-     "📋 Input Review Queue",
-     "🔄 Pipeline Monitor"],
-)
+_NAV_PAGES = [
+    "📚 BM Library", "🔀 Transition Case Studies", "📐 Transformations",
+    "⚡ Scalars", "🔬 Technologies", "🏢 Companies", "🧠 Hypotheses",
+    "📋 Input Review Queue", "📊 Graph Overview", "🔄 Pipeline Monitor",
+    "📝 Editorial", "🤖 Agent", "📓 Notebook",
+]
 
-st.sidebar.divider()
-st.sidebar.markdown("""
-**Build status**
+# Apply any pending navigation BEFORE the radio widget is instantiated.
+# (Streamlit forbids setting a widget's key after it renders.)
+if "_nav_pending" in st.session_state:
+    st.session_state["nav_page"] = st.session_state.pop("_nav_pending")
 
-| Part | Status |
-|------|--------|
-| 1–4 Infrastructure | ✅ |
-| 5 Manual BM Entry | ✅ |
-| 6 Company Upload | ✅ |
-| 7 Technology Entry | ✅ |
-| 8 Internet Scan | ✅ |
-| 9 Input Review UI | ✅ |
-| 10–13 Extraction | ✅ |
-| 14–17 Analysis | ✅ |
-| 18–21 Research | ✅ |
-| 22–23 Monitor | ✅ |
-| 24–25 Editorial | ✅ |
-| 26–28 Orchestration | ✅ |
-""")
+page = st.sidebar.radio("Navigate", _NAV_PAGES, key="nav_page")
+
+
+def nav_to(target_page: str, search_key: str = None, search_val: str = None):
+    """Navigate to a page, optionally pre-filling a search/filter field."""
+    st.session_state["_nav_pending"] = target_page
+    if search_key and search_val is not None:
+        st.session_state[search_key] = str(search_val)
+    st.rerun()
+
+
+def _elink(label: str, page: str, sk: str, sv: str, key: str, icon: str = ""):
+    """Render a small entity navigation button. Returns nothing (handles click internally)."""
+    disp = f"{icon} {label}".strip() if icon else label
+    if st.button(disp, key=key, help=f"View in {page}", use_container_width=False):
+        nav_to(page, sk, sv)
+
+# ── Startup: detect prompt/logic drift from code edits ────────────────────────
+if "editorial_drift_checked" not in st.session_state:
+    try:
+        import sys as _sys
+        _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from core.editorial import detect_and_log_drift
+        _drift = detect_and_log_drift()
+        st.session_state["editorial_drift_checked"] = True
+        if _drift:
+            st.session_state["editorial_drift_items"] = _drift
+    except Exception:
+        st.session_state["editorial_drift_checked"] = True
 
 
 # ── Page: BM Library ─────────────────────────────────────────────────────────
@@ -98,7 +120,7 @@ if page == "📚 BM Library":
     # ── Filters ───────────────────────────────────────────────────────────────
     col_f1, col_f2, col_f3 = st.columns([3, 2, 2])
     with col_f1:
-        search = st.text_input("🔍 Search", placeholder="Filter by name or description...")
+        search = st.text_input("🔍 Search", placeholder="Filter by name or description...", key="bm_lib_search")
     with col_f2:
         show_pending = st.checkbox("Show pending review only", value=False)
     with col_f3:
@@ -125,10 +147,7 @@ if page == "📚 BM Library":
     st.caption(f"Showing {len(filtered)} of {len(bms)} business models")
 
     # ── Change log loader ─────────────────────────────────────────────────────
-    changelog_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data", "bm_changelog.jsonl"
-    )
+    changelog_path = os.path.join(DATA_ROOT, "bm_changelog.jsonl")
 
     def append_changelog(entry: dict):
         os.makedirs(os.path.dirname(changelog_path), exist_ok=True)
@@ -467,10 +486,7 @@ elif page == "🔀 Transition Case Studies":
     st.caption("Every recorded real-world business model transition — the companies, the story, the causal forces. Edit any case and log your reason.")
 
     # ── Changelog helpers ─────────────────────────────────────────────────────
-    tc_log_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data", "transition_changelog.jsonl"
-    )
+    tc_log_path = os.path.join(DATA_ROOT, "transition_changelog.jsonl")
 
     def tc_append(entry: dict):
         os.makedirs(os.path.dirname(tc_log_path), exist_ok=True)
@@ -716,7 +732,7 @@ elif page == "🔀 Transition Case Studies":
                         score    = sc.get("score") or 0
                         arrow    = "⬆️" if sc.get("direction") == "increases" else "⬇️"
                         strength = sc.get("strength") or "—"
-                        col_sc1, col_sc2 = st.columns([3, 1])
+                        col_sc1, col_sc2, col_sc3 = st.columns([3, 1, 1])
                         with col_sc1:
                             st.markdown(f"{arrow} **{sc['name'][:70]}**")
                             rationale = sc.get("rationale") or ""
@@ -725,6 +741,10 @@ elif page == "🔀 Transition Case Studies":
                         with col_sc2:
                             color = "green" if score and score > 0 else "red"
                             st.markdown(f":{color}[**{strength}** ({'+' if score and score > 0 else ''}{score})]")
+                        with col_sc3:
+                            if st.button("↗", key=f"navsc_tc_{vid}_{eid}_{sc.get('scalar_id',sc['name'][:8])}",
+                                         help="View scalar"):
+                                nav_to("⚡ Scalars", "sc_search", sc["name"])
 
                     # Scalar edit toggle — keyed on vid+eid so each card is independent
                     sc_edit_key = f"show_sc_edit_{vid}_{eid}"
@@ -812,7 +832,12 @@ elif page == "🔀 Transition Case Studies":
                     hcol2.metric("Type", case.get("dtype") or "—")
                     hcol3.metric("Horizon", case.get("horizon") or "—")
                     if case.get("hyp_title"):
-                        st.markdown(f"**{case['hyp_title']}**")
+                        _ht1, _ht2 = st.columns([5, 1])
+                        _ht1.markdown(f"**{case['hyp_title']}**")
+                        with _ht2:
+                            if st.button("↗", key=f"navhyp_tc_{vid}_{eid}",
+                                         help="View hypothesis"):
+                                nav_to("🧠 Hypotheses", "hyp_search", case["hyp_title"][:60])
                     thesis = case.get("thesis") or ""
                     if thesis:
                         st.markdown(thesis)
@@ -852,10 +877,7 @@ elif page == "📐 Transformations":
     st.caption("Every recorded business model transition — evidence, causal forces, and hypothesis in one place.")
 
     # ── Changelog helpers ──────────────────────────────────────────────────────
-    tv_log_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data", "transformation_changelog.jsonl"
-    )
+    tv_log_path = os.path.join(DATA_ROOT, "transformation_changelog.jsonl")
 
     def tv_append(entry: dict):
         os.makedirs(os.path.dirname(tv_log_path), exist_ok=True)
@@ -1026,7 +1048,7 @@ elif page == "📐 Transformations":
                 for sc in scalars:
                     score = sc.get("score") or 0
                     arrow = "⬆️" if sc.get("direction") == "increases" else "⬇️"
-                    sc1, sc2 = st.columns([3, 1])
+                    sc1, sc2, sc3 = st.columns([3, 1, 1])
                     with sc1:
                         st.markdown(f"{arrow} **{sc['name'][:70]}**")
                         if sc.get("rationale"):
@@ -1034,6 +1056,10 @@ elif page == "📐 Transformations":
                     with sc2:
                         color = "green" if score > 0 else ("red" if score < 0 else "gray")
                         st.markdown(f":{color}[**{sc.get('strength','—')}** ({'+' if score > 0 else ''}{score})]")
+                    with sc3:
+                        if st.button("↗", key=f"navsc_tv_{vid}_{sc.get('scalar_id',sc['name'][:8])}",
+                                     help="View scalar"):
+                            nav_to("⚡ Scalars", "sc_search", sc["name"])
 
                 tv_sc_key = f"tv_sc_edit_{vid}"
                 if tv_sc_key not in st.session_state:
@@ -1133,7 +1159,12 @@ elif page == "📐 Transformations":
                 hc2.metric("Type", tr.get("dtype") or "—")
                 hc3.metric("Horizon", tr.get("horizon") or "—")
                 if tr.get("hyp_title"):
-                    st.markdown(f"**{tr['hyp_title']}**")
+                    _tv_ht1, _tv_ht2 = st.columns([5, 1])
+                    _tv_ht1.markdown(f"**{tr['hyp_title']}**")
+                    with _tv_ht2:
+                        if st.button("↗", key=f"navhyp_tv_{vid}",
+                                     help="View hypothesis"):
+                            nav_to("🧠 Hypotheses", "hyp_search", tr["hyp_title"][:60])
                 if tr.get("thesis"):
                     st.markdown(tr["thesis"])
                 if tr.get("counter"):
@@ -1225,10 +1256,7 @@ elif page == "⚡ Scalars":
     st.title("⚡ Scalars")
     st.caption("The structural conditions that drive business model transitions.")
 
-    sc_log_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data", "scalar_changelog.jsonl"
-    )
+    sc_log_path = os.path.join(DATA_ROOT, "scalar_changelog.jsonl")
 
     def sc_append(entry: dict):
         os.makedirs(os.path.dirname(sc_log_path), exist_ok=True)
@@ -1337,15 +1365,15 @@ elif page == "⚡ Scalars":
             if linked:
                 st.markdown(f"#### 🔗 Transformations this scalar influences ({len(linked)})")
 
-                def render_linked(rows, header):
+                def render_linked(rows, header, cat):
                     if not rows:
                         return
                     st.markdown(f"**{header}**")
-                    for lv in rows:
+                    for _lvi, lv in enumerate(rows):
                         score = lv.get("score") or 0
                         arrow = "⬆️" if lv.get("direction") == "increases" else "⬇️"
                         color = "green" if score > 0 else ("red" if score < 0 else "gray")
-                        lc1, lc2 = st.columns([4, 1])
+                        lc1, lc2, lc3 = st.columns([3, 1, 1])
                         with lc1:
                             st.markdown(f"{arrow} **{lv['from_bm']} → {lv['to_bm']}**")
                             if lv.get("rationale"):
@@ -1353,13 +1381,18 @@ elif page == "⚡ Scalars":
                         with lc2:
                             st.markdown(f":{color}[**{lv.get('strength','—')}** ({'+' if score > 0 else ''}{score})]")
                             st.caption(f"sig: {lv.get('signal') or 0:.3f}")
+                        with lc3:
+                            if st.button("↗", key=f"navtv_sc_{sid}_{cat}_{_lvi}",
+                                         help="View transition"):
+                                nav_to("🔀 Transition Case Studies", "tc_search",
+                                       lv.get("from_bm",""))
 
                 pos = [l for l in linked if (l.get("score") or 0) > 0]
                 neg = [l for l in linked if (l.get("score") or 0) < 0]
                 neu = [l for l in linked if (l.get("score") or 0) == 0]
-                render_linked(pos, "✅ Positive — increases probability of this transition")
-                render_linked(neg, "❌ Negative — decreases probability of this transition")
-                render_linked(neu, "➡️ Neutral")
+                render_linked(pos, "✅ Positive — increases probability of this transition", "pos")
+                render_linked(neg, "❌ Negative — decreases probability of this transition", "neg")
+                render_linked(neu, "➡️ Neutral", "neu")
 
             st.divider()
 
@@ -1426,10 +1459,7 @@ elif page == "🔬 Technologies":
 
     import anthropic as _anthropic
 
-    tech_log_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "data", "technology_changelog.jsonl"
-    )
+    tech_log_path = os.path.join(DATA_ROOT, "technology_changelog.jsonl")
 
     def tech_append(entry: dict):
         os.makedirs(os.path.dirname(tech_log_path), exist_ok=True)
@@ -1600,8 +1630,8 @@ elif page == "🔬 Technologies":
             if linked_vecs or hyp_matches:
                 st.markdown(f"#### 🔗 Transformations this technology influences")
                 if linked_vecs:
-                    for lv in linked_vecs:
-                        lc1, lc2 = st.columns([4, 1])
+                    for _lvi, lv in enumerate(linked_vecs):
+                        lc1, lc2, lc3 = st.columns([3, 1, 1])
                         with lc1:
                             itype = lv.get("itype") or "enables"
                             st.markdown(f"**{lv['from_bm']} → {lv['to_bm']}**  _{itype}_")
@@ -1609,12 +1639,25 @@ elif page == "🔬 Technologies":
                                 st.caption(lv["rationale"][:200])
                         with lc2:
                             st.caption(f"sig: {lv.get('signal') or 0:.3f}")
+                        with lc3:
+                            if st.button("↗", key=f"navtv_tech_{tid}_{_lvi}",
+                                         help="View transition"):
+                                nav_to("🔀 Transition Case Studies", "tc_search",
+                                       lv.get("from_bm",""))
                 if hyp_matches:
                     st.markdown("_From hypothesis AI-link mentions:_")
-                    for hm in hyp_matches:
-                        st.markdown(f"- **{hm['from_bm']} → {hm['to_bm']}** — {hm.get('hyp_title','')[:80]}")
-                        if hm.get("ai_link"):
-                            st.caption(hm["ai_link"][:180])
+                    for _hmi, hm in enumerate(hyp_matches):
+                        _hm1, _hm2 = st.columns([5, 1])
+                        with _hm1:
+                            st.markdown(f"- **{hm['from_bm']} → {hm['to_bm']}** — {hm.get('hyp_title','')[:80]}")
+                            if hm.get("ai_link"):
+                                st.caption(hm["ai_link"][:180])
+                        with _hm2:
+                            if hm.get("hyp_title") and st.button(
+                                "↗", key=f"navhyp_tech_{tid}_{_hmi}",
+                                help="View hypothesis",
+                            ):
+                                nav_to("🧠 Hypotheses", "hyp_search", hm["hyp_title"][:60])
             else:
                 st.caption("_No linked transformations yet — link one below._")
 
@@ -1937,7 +1980,7 @@ elif page == "🏢 Companies":
     cf1, cf2, cf3, cf4 = st.columns([3, 2, 2, 1])
     with cf1:
         co_search = st.text_input("Search", placeholder="company name, description…",
-                                  label_visibility="collapsed")
+                                  label_visibility="collapsed", key="co_search")
     with cf2:
         _bim_opts = run_query("MATCH (b:BusinessModel) RETURN b.bim_id AS id, b.name AS name ORDER BY b.bim_id") or []
         bim_filter_map = {"All business models": None}
@@ -2038,7 +2081,15 @@ elif page == "🏢 Companies":
                         bm_cols = st.columns(min(len(bims), 3))
                         for i, b in enumerate(bims):
                             tag = "🔵 Primary" if b.get("is_primary") else "⚪ Secondary"
-                            bm_cols[i % 3].markdown(f"{tag}  \n`{b['bim_id']}` {b.get('name','')}")
+                            with bm_cols[i % 3]:
+                                st.caption(tag)
+                                if st.button(
+                                    f"`{b['bim_id']}` {b.get('name','')}",
+                                    key=f"navbm_{cid}_{b['bim_id']}",
+                                    help="View in BM Library",
+                                    use_container_width=True,
+                                ):
+                                    nav_to("📚 BM Library", "bm_lib_search", b.get("name",""))
                     else:
                         st.caption("No business models linked yet.")
 
@@ -2080,18 +2131,25 @@ elif page == "🏢 Companies":
                     if _hyp_links:
                         st.divider()
                         st.markdown(f"**⚠️ Disruption hypotheses ({len(_hyp_links)})**")
-                        for dh in _hyp_links:
+                        for _dhi, dh in enumerate(_hyp_links):
                             conv  = dh.get("conviction") or 0
                             icon  = "🔴" if conv >= 0.7 else "🟡"
-                            st.markdown(
-                                f"{icon} → **{dh.get('to_bm','?')}**  "
-                                f"·  ⚡ {dh.get('tech_name','?')}  "
-                                f"·  conviction={conv:.2f}  "
-                                f"·  {dh.get('dtype','?')}  "
-                                f"·  {dh.get('horizon','?')}  \n"
-                                f"<span style='font-size:0.8rem;color:#aaa'>{(dh.get('title') or '')[:80]}</span>",
-                                unsafe_allow_html=True,
-                            )
+                            _dh_c1, _dh_c2 = st.columns([5, 1])
+                            with _dh_c1:
+                                st.markdown(
+                                    f"{icon} → **{dh.get('to_bm','?')}**  "
+                                    f"·  ⚡ {dh.get('tech_name','?')}  "
+                                    f"·  conviction={conv:.2f}  "
+                                    f"·  {dh.get('dtype','?')}  "
+                                    f"·  {dh.get('horizon','?')}  \n"
+                                    f"<span style='font-size:0.8rem;color:#aaa'>{(dh.get('title') or '')[:80]}</span>",
+                                    unsafe_allow_html=True,
+                                )
+                            with _dh_c2:
+                                if st.button("View →", key=f"navhyp_{cid}_{_dhi}",
+                                             help="View hypothesis"):
+                                    nav_to("🧠 Hypotheses", "hyp_search",
+                                           (dh.get("title") or "")[:60])
 
                 with right:
                     st.metric("Ticker", co.get("ticker") or "—")
@@ -2129,7 +2187,7 @@ elif page == "🏢 Companies":
                                     rev=new_rev, now=now_str)
                                 try:
                                     os.makedirs("data", exist_ok=True)
-                                    with open("data/company_changelog.jsonl", "a") as _f:
+                                    with open(os.path.join(DATA_ROOT, "company_changelog.jsonl"), "a") as _f:
                                         _f.write(json.dumps({
                                             "timestamp": now_str, "company_id": cid,
                                             "name": name, "changes": {
@@ -2617,7 +2675,7 @@ elif page == "🧠 Hypotheses":
     # ── filters ──
     fcol1, fcol2, fcol3, fcol4 = st.columns([2, 2, 2, 1])
     with fcol1:
-        search_hyp = st.text_input("Search", placeholder="title, thesis, company…", label_visibility="collapsed")
+        search_hyp = st.text_input("Search", placeholder="title, thesis, company…", label_visibility="collapsed", key="hyp_search")
     with fcol2:
         tech_filter_opts = ["All technologies"]
         _tech_names = run_query("MATCH (t:Technology) RETURN t.tech_id AS id, t.name AS name ORDER BY t.tech_id")
@@ -2731,7 +2789,7 @@ elif page == "🧠 Hypotheses":
 
                 st.markdown(
                     f"<div style='background:#1a1a2e;border-left:3px solid #4a9eff;"
-                    f"padding:10px 14px;border-radius:4px;margin-bottom:12px;font-size:0.88rem'>"
+                    f"padding:10px 14px;border-radius:4px;margin-bottom:4px;font-size:0.88rem'>"
                     f"<span style='color:#4a9eff;font-weight:600'>⚡ {h.get('tech_name','')}</span>"
                     f"<span style='color:#888'> → moves scalars → </span>"
                     f"<span style='color:#7ec8e3'>{' · '.join(scalar_chain[:4]) or '—'}</span>"
@@ -2740,6 +2798,33 @@ elif page == "🧠 Hypotheses":
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+                # ── entity nav pills ──
+                _np_cols = st.columns(len(scalar_chain[:4]) + 3)
+                _np_idx = 0
+                if h.get("tech_name"):
+                    with _np_cols[_np_idx]:
+                        _elink(h["tech_name"], "🔬 Technologies", "tech_search",
+                               h["tech_name"], f"nptech_{hid}", "⚡")
+                    _np_idx += 1
+                if h.get("from_name"):
+                    with _np_cols[_np_idx]:
+                        _elink(h["from_name"], "📚 BM Library", "bm_lib_search",
+                               h["from_name"], f"npfrom_{hid}", "📚")
+                    _np_idx += 1
+                if h.get("to_name"):
+                    with _np_cols[_np_idx]:
+                        _elink(h["to_name"], "📚 BM Library", "bm_lib_search",
+                               h["to_name"], f"npto_{hid}", "📚")
+                    _np_idx += 1
+                _pill_scalar_ids = ([primary] if primary else []) + [
+                    s for s in (aligned_scalars or []) if s != primary
+                ]
+                for _si, _sc_id in enumerate(_pill_scalar_ids[:4]):
+                    _sc_name = scalar_names.get(_sc_id, _sc_id)
+                    with _np_cols[_np_idx + _si]:
+                        _elink(_sc_id, "⚡ Scalars", "sc_search",
+                               _sc_name, f"npsc_{hid}_{_si}", "⚙️")
+                st.markdown("")  # small spacer
 
                 # ── thesis ──
                 st.markdown("**Thesis**")
@@ -2771,15 +2856,36 @@ elif page == "🧠 Hypotheses":
                         _mv_cols[2].caption("Tech moves")
                         _mv_cols[3].caption("Vector needs")
                         _mv_cols[4].caption("Aligned?")
-                        for mv in _mv:
+                        for _mvi, mv in enumerate(_mv):
                             aligned = mv.get("vec_dir") and mv.get("tech_dir") == mv.get("vec_dir")
-                            _mv_cols[0].markdown(f"`{mv['sid']}`")
+                            with _mv_cols[0]:
+                                if st.button(f"`{mv['sid']}`", key=f"navsc_{hid}_{_mvi}",
+                                             help="View scalar"):
+                                    nav_to("⚡ Scalars", "sc_search", mv.get("sname",""))
                             _mv_cols[1].markdown(mv.get("sname","")[:55])
                             _mv_cols[2].markdown(f"{mv.get('tech_dir','')} ({mv.get('tech_str','')})")
                             _mv_cols[3].markdown(f"{mv.get('vec_dir','—')}")
                             _mv_cols[4].markdown("✅" if aligned else ("❌" if mv.get("vec_dir") else "—"))
 
                 st.divider()
+
+                # ── agent button ──
+                if st.button("🤖 Discuss with Agent", key=f"agent_btn_{hid}",
+                             help="Open this hypothesis in the Agent for deeper analysis"):
+                    st.session_state["agent_context"] = {
+                        "label": f"Hypothesis {hid}: {h.get('title','')[:60]}",
+                        "detail": (
+                            f"Hypothesis ID: {hid}\n"
+                            f"Title: {h.get('title','')}\n"
+                            f"Tech: {h.get('tech_name','')}\n"
+                            f"Transition: {h.get('from_name','?')} → {h.get('to_name','?')}\n"
+                            f"Conviction: {conv:.2f}  Type: {h.get('dtype','')}  Horizon: {h.get('horizon','')}\n"
+                            f"Thesis: {h.get('thesis','')}\n"
+                            f"Counter: {h.get('counter','')}"
+                        ),
+                    }
+                    st.session_state["agent_api_history"] = []
+                    nav_to("🤖 Agent")
 
                 # ── metrics ──
                 mc = st.columns(5)
@@ -2802,18 +2908,22 @@ elif page == "🧠 Hypotheses":
 
                 if _linked_cos:
                     st.markdown(f"**🏢 Companies in our database exposed ({len(_linked_cos)})**")
-                    # Display as compact grid of badges
+                    # Display as compact grid of clickable badges
                     _badge_rows = [_linked_cos[i:i+3] for i in range(0, len(_linked_cos), 3)]
                     for _row in _badge_rows:
                         _bcols = st.columns(3)
                         for _ci, _co in enumerate(_row):
                             _ticker = f" `{_co['ticker']}`" if _co.get("ticker") else ""
                             _rev    = f"  ·  {_co['rev']}" if _co.get("rev") else ""
-                            _bcols[_ci].markdown(
-                                f"**{_co['name']}**{_ticker}  \n"
-                                f"<span style='font-size:0.8rem;color:#888'>{_co.get('bm','')[:35]}{_rev}</span>",
-                                unsafe_allow_html=True,
-                            )
+                            with _bcols[_ci]:
+                                if st.button(
+                                    f"🏢 {_co['name']}{_ticker}",
+                                    key=f"navco_{hid}_{_co['cid']}",
+                                    help="View in Companies",
+                                    use_container_width=True,
+                                ):
+                                    nav_to("🏢 Companies", "co_search", _co["name"])
+                                st.caption(f"{(_co.get('bm') or '')[:35]}{_rev}")
 
                 companies_str = ", ".join(h.get("companies") or []) or "—"
                 st.caption(f"**Mentioned in thesis:** {companies_str}")
@@ -2902,13 +3012,129 @@ elif page == "🧠 Hypotheses":
                             }
                             try:
                                 os.makedirs("data", exist_ok=True)
-                                with open("data/hypothesis_changelog.jsonl", "a") as _f:
+                                with open(os.path.join(DATA_ROOT, "hypothesis_changelog.jsonl"), "a") as _f:
                                     _f.write(json.dumps(_hyp_log) + "\n")
                             except Exception:
                                 pass
                             st.success("Saved")
                             st.session_state[edit_key] = False
                             st.rerun()
+
+                # ── Research Notebook ─────────────────────────────────────
+                st.divider()
+                from core.notebook import (
+                    get_notes_for_hypothesis, get_related_notes,
+                    create_note, update_note, delete_note,
+                    NOTE_TYPE_ICONS, NOTE_TYPES,
+                )
+                _notes = get_notes_for_hypothesis(hid)
+                _vid   = h.get("vid") or ""
+
+                _nb_label = f"📓 Research Notes ({len(_notes)})"
+                _nb_key   = f"nb_open_{hid}"
+                if _nb_key not in st.session_state:
+                    st.session_state[_nb_key] = False
+                if st.button(_nb_label, key=f"nb_toggle_{hid}"):
+                    st.session_state[_nb_key] = not st.session_state[_nb_key]
+
+                if st.session_state[_nb_key]:
+                    # ── existing notes ──────────────────────────────────
+                    for _n in _notes:
+                        _icon = NOTE_TYPE_ICONS.get(_n.get("note_type",""), "📄")
+                        _ts   = (_n.get("created_at") or "")[:16].replace("T"," ")
+                        _src  = "🤖" if _n.get("source") == "agent" else "👤"
+                        _nedit_key = f"nb_edit_{_n['note_id']}"
+                        if _nedit_key not in st.session_state:
+                            st.session_state[_nedit_key] = False
+                        with st.container(border=True):
+                            _nc1, _nc2 = st.columns([5, 1])
+                            _nc1.markdown(
+                                f"{_icon} {_src} **{_n.get('title','Untitled')}**  "
+                                f"<span style='color:#888;font-size:0.8rem'>{_ts}</span>",
+                                unsafe_allow_html=True,
+                            )
+                            if _nc2.button("✏️", key=f"nb_editbtn_{_n['note_id']}",
+                                           help="Edit / delete"):
+                                st.session_state[_nedit_key] = not st.session_state[_nedit_key]
+                            if _n.get("tags"):
+                                st.caption("🏷 " + "  ·  ".join(_n["tags"]))
+                            st.markdown(_n.get("content",""))
+                            if st.session_state[_nedit_key]:
+                                with st.form(key=f"nb_editform_{_n['note_id']}"):
+                                    _et = st.text_input("Title", value=_n.get("title",""),
+                                                        key=f"nb_etitle_{_n['note_id']}")
+                                    _ec = st.text_area("Content", value=_n.get("content",""),
+                                                       height=160, key=f"nb_econtent_{_n['note_id']}")
+                                    _eg = st.text_input("Tags (comma-separated)",
+                                                        value=", ".join(_n.get("tags") or []),
+                                                        key=f"nb_etags_{_n['note_id']}")
+                                    _es, _ed = st.columns(2)
+                                    if _es.form_submit_button("💾 Save", type="primary"):
+                                        update_note(_n["note_id"], title=_et, content=_ec,
+                                                    tags=[t.strip() for t in _eg.split(",") if t.strip()])
+                                        st.session_state[_nedit_key] = False
+                                        st.rerun()
+                                    if _ed.form_submit_button("🗑 Delete"):
+                                        delete_note(_n["note_id"])
+                                        st.rerun()
+
+                    # ── add new note ────────────────────────────────────
+                    _add_key = f"nb_add_{hid}"
+                    if _add_key not in st.session_state:
+                        st.session_state[_add_key] = False
+                    if st.button("➕ Add note", key=f"nb_addbtn_{hid}"):
+                        st.session_state[_add_key] = not st.session_state[_add_key]
+                    if st.session_state[_add_key]:
+                        with st.form(key=f"nb_addform_{hid}"):
+                            _at = st.text_input("Title", placeholder="Short descriptive title",
+                                                key=f"nb_atitle_{hid}")
+                            _ac = st.text_area("Content", height=180,
+                                               placeholder="Ideas, writeup, observations…",
+                                               key=f"nb_acontent_{hid}")
+                            _an = st.selectbox("Type",
+                                               [f"{NOTE_TYPE_ICONS[t]} {t}" for t in NOTE_TYPES],
+                                               key=f"nb_atype_{hid}")
+                            _ag = st.text_input("Tags (comma-separated)", key=f"nb_atags_{hid}")
+                            if st.form_submit_button("💾 Save note", type="primary"):
+                                if _at.strip() and _ac.strip():
+                                    _ntype = _an.split(" ", 1)[1] if " " in _an else _an
+                                    create_note(hid, _at.strip(), _ac.strip(),
+                                                note_type=_ntype, source="user",
+                                                tags=[t.strip() for t in _ag.split(",") if t.strip()])
+                                    st.session_state[_add_key] = False
+                                    st.success("Note saved.")
+                                    st.rerun()
+                                else:
+                                    st.error("Title and content are required.")
+
+                    # ── related notes from same transformation ──────────
+                    if _vid:
+                        _related = get_related_notes(_vid, exclude_hyp_id=hid)
+                        if _related:
+                            st.markdown(
+                                f"**🔗 Prior thoughts on this transformation "
+                                f"({len(_related)} from other hypotheses)**"
+                            )
+                            for _rn in _related:
+                                _icon = NOTE_TYPE_ICONS.get(_rn.get("note_type",""), "📄")
+                                _stat = _rn.get("current_hyp_status") or "?"
+                                _stat_color = {"Validated": "🟢", "Rejected": "🔴",
+                                               "Hypothesis": "🟡"}.get(_stat, "⚪")
+                                with st.expander(
+                                    f"{_icon} {_rn.get('title','Untitled')}  "
+                                    f"— {_stat_color} {_rn.get('hyp_title','')[:50]}"
+                                ):
+                                    st.caption(
+                                        f"From hypothesis: **{_rn.get('hyp_id','')}**  "
+                                        f"Status at write time: *{_rn.get('hyp_status_at','')}*  "
+                                        f"Current: *{_stat}*"
+                                    )
+                                    st.markdown(_rn.get("content",""))
+                                    if st.button("Open that hypothesis →",
+                                                 key=f"navhyp_related_{_rn['note_id']}",
+                                                 help="View related hypothesis"):
+                                        nav_to("🧠 Hypotheses", "hyp_search",
+                                               _rn.get("hyp_title","")[:60])
 
             with right_col:
                 st.markdown("**Review**")
@@ -2962,6 +3188,36 @@ elif page == "🧠 Hypotheses":
                 st.markdown(f"**Primary scalar**")
                 prim = h.get("primary_scalar") or "—"
                 st.markdown(f"`{prim}` {scalar_names.get(prim,'')[:40]}")
+
+
+# ── Page: Graph Overview ──────────────────────────────────────────────────────
+
+elif page == "📊 Graph Overview":
+    st.title("📊 Graph Overview")
+
+    counts = run_query("""
+        MATCH (n)
+        RETURN labels(n)[0] AS label, count(n) AS cnt
+        ORDER BY cnt DESC
+    """)
+
+    rel_counts = run_query("""
+        MATCH ()-[r]->()
+        RETURN type(r) AS rel_type, count(r) AS cnt
+        ORDER BY cnt DESC
+    """)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Node counts")
+        for row in counts:
+            st.metric(row["label"], row["cnt"])
+
+    with col2:
+        st.subheader("Relationship counts")
+        for row in rel_counts:
+            st.metric(row["rel_type"], row["cnt"])
 
 
 # ── Page: Pipeline Monitor ────────────────────────────────────────────────────
@@ -3118,3 +3374,679 @@ elif page == "🔄 Pipeline Monitor":
                             st.json(snap["full_data"])
             except ImportError:
                 st.warning("core.snapshot not available.")
+
+
+# ── Page: Editorial ───────────────────────────────────────────────────────────
+
+elif page == "📝 Editorial":
+    from core.editorial import (
+        list_prompts, read_prompt, write_prompt,
+        load_logic_config, update_constant,
+        load_changelog,
+    )
+
+    st.title("📝 Editorial")
+    st.caption("Edit prompts and logic thresholds. Every change is logged with your rationale.")
+
+    # Drift warning banner
+    drift_items = st.session_state.get("editorial_drift_items", [])
+    if drift_items:
+        names = ", ".join(d["name"] for d in drift_items)
+        st.warning(
+            f"⚠️ {len(drift_items)} item(s) changed outside the UI and were auto-logged: {names}"
+        )
+
+    tab_prompts, tab_logic, tab_history = st.tabs(
+        ["🗒 Prompts", "⚙️ Logic & Thresholds", "📋 Change History"]
+    )
+
+    # ── Tab: Prompts ──────────────────────────────────────────────────────────
+    with tab_prompts:
+        st.subheader("Prompt Files")
+        st.caption("All 10 prompts used by the extraction pipeline. Expand a row to view or edit.")
+
+        prompts = list_prompts()
+
+        stage_labels = {
+            "extraction":  "🔬 Extraction",
+            "input_layer": "📥 Input Layer",
+            "research":    "🔍 Research (not yet integrated)",
+        }
+
+        stages_order = ["extraction", "input_layer", "research"]
+        stages_map = {}
+        for p in prompts:
+            stages_map.setdefault(p["stage"], []).append(p)
+
+        for stage in stages_order:
+            stage_prompts = stages_map.get(stage, [])
+            if not stage_prompts:
+                continue
+            st.markdown(f"**{stage_labels.get(stage, stage)}**")
+
+            for p in stage_prompts:
+                pid = p["id"]
+                expand_key = f"prompt_expand_{pid}"
+                edit_key   = f"prompt_edit_mode_{pid}"
+                if expand_key not in st.session_state:
+                    st.session_state[expand_key] = False
+                if edit_key not in st.session_state:
+                    st.session_state[edit_key] = False
+
+                with st.container(border=True):
+                    c_name, c_file, c_date, c_btn = st.columns([4, 3, 2, 1])
+                    c_name.markdown(f"**{p['name']}**")
+                    c_name.caption(p["description"][:90])
+                    c_file.caption(f"`{p['used_in']}`")
+                    c_date.caption(p.get("last_file_modified") or "—")
+
+                    if c_btn.button("▼" if not st.session_state[expand_key] else "▲",
+                                    key=f"toggle_prompt_{pid}"):
+                        st.session_state[expand_key] = not st.session_state[expand_key]
+                        st.session_state[edit_key] = False
+
+                    if st.session_state[expand_key]:
+                        content = read_prompt(pid)
+
+                        if not st.session_state[edit_key]:
+                            st.code(content, language=None)
+
+                            # Last 5 edits
+                            history = load_changelog(item_id=pid, change_type="prompt_edit", n=5)
+                            if history:
+                                with st.expander(f"📋 Last {len(history)} edit(s)"):
+                                    for entry in history:
+                                        ts  = entry.get("timestamp", "")[:19].replace("T", " ")
+                                        src = entry.get("source", "")
+                                        badge = "✏️ UI" if src == "manual_ui" else "💻 Code"
+                                        st.markdown(
+                                            f"**{ts}** &nbsp; {badge} &nbsp; "
+                                            f"— _{entry.get('rationale','')[:120]}_"
+                                        )
+                                        st.divider()
+
+                            if st.button("✏️ Edit prompt", key=f"start_edit_{pid}"):
+                                st.session_state[edit_key] = True
+                                st.rerun()
+
+                        else:
+                            with st.form(key=f"prompt_form_{pid}"):
+                                new_content = st.text_area(
+                                    "Prompt content",
+                                    value=content,
+                                    height=420,
+                                    help="Full prompt text sent to Claude for this pipeline stage.",
+                                )
+                                rationale = st.text_area(
+                                    "🧠 Why are you making this change?",
+                                    height=80,
+                                    placeholder="e.g. 'Added explicit instruction to output JSON only — was hallucinating prose wrappers.'",
+                                )
+                                sc1, sc2 = st.columns([2, 1])
+                                with sc1:
+                                    save_p = st.form_submit_button("💾 Save", type="primary")
+                                with sc2:
+                                    cancel_p = st.form_submit_button("✕ Cancel")
+
+                                if save_p:
+                                    if not rationale.strip():
+                                        st.error("Rationale is required.")
+                                    else:
+                                        try:
+                                            write_prompt(pid, new_content, rationale,
+                                                         editor="manual_ui")
+                                            st.success(f"✅ {p['name']} saved and logged.")
+                                            st.session_state[edit_key] = False
+                                            st.rerun()
+                                        except Exception as exc:
+                                            st.error(f"Save failed: {exc}")
+
+                                if cancel_p:
+                                    st.session_state[edit_key] = False
+                                    st.rerun()
+
+            st.divider()
+
+    # ── Tab: Logic & Thresholds ───────────────────────────────────────────────
+    with tab_logic:
+        st.subheader("Logic Constants & Thresholds")
+        st.caption(
+            "All values loaded from `config/logic_config.json` at runtime. "
+            "Changes take effect on the next pipeline run."
+        )
+
+        cfg = load_logic_config()
+        if not cfg:
+            st.error("`config/logic_config.json` not found.")
+        else:
+            category_meta = {
+                "activation": (
+                    "⚡ Activation",
+                    "Controls when a technology is considered to activate a transformation vector.",
+                ),
+                "signal_weights": (
+                    "📊 Signal Weights",
+                    "Weighted components of the composite signal_strength score (must sum to 1.0).",
+                ),
+                "duplicate_detection": (
+                    "🔍 Duplicate Detection",
+                    "Similarity thresholds for blocking or flagging duplicate Business Models.",
+                ),
+                "trends": (
+                    "📈 Trends",
+                    "Minimum criteria for a scalar activation to qualify as a macro trend.",
+                ),
+                "impact_scoring": (
+                    "🎯 Impact Scoring",
+                    "Integer score assigned to each (direction, strength) scalar impact combination.",
+                ),
+            }
+
+            for cat_key, (cat_label, cat_desc) in category_meta.items():
+                cat_data = cfg.get(cat_key, {})
+                if not cat_data:
+                    continue
+
+                st.markdown(f"**{cat_label}**")
+                st.caption(cat_desc)
+
+                # Signal weights validation
+                if cat_key == "signal_weights":
+                    wk = ["evidence_weight", "scalar_coverage_weight",
+                          "scalar_magnitude_weight", "conviction_weight"]
+                    w_sum = sum(cat_data.get(k, {}).get("value", 0) for k in wk)
+                    if abs(w_sum - 1.0) > 0.001:
+                        st.warning(
+                            f"⚠️ Signal weights sum to **{w_sum:.4f}** — should be 1.0000"
+                        )
+
+                for const_key, const_meta in cat_data.items():
+                    item_id  = f"{cat_key}.{const_key}"
+                    ledit_key = f"logic_edit_{item_id}"
+                    if ledit_key not in st.session_state:
+                        st.session_state[ledit_key] = False
+
+                    current_val = const_meta.get("value")
+
+                    with st.container(border=True):
+                        h1, h2, h3 = st.columns([3, 5, 1])
+                        h1.markdown(f"**`{const_key}`**")
+                        h1.caption(const_meta.get("description", "")[:120])
+                        h2.caption(f"Formula: _{const_meta.get('formula', '—')}_")
+                        h2.caption(f"Used in: `{const_meta.get('used_in', '—')}`")
+
+                        if isinstance(current_val, dict):
+                            h3.caption("map type")
+                        else:
+                            h3.metric("Value", current_val)
+
+                        if h3.button("✏️", key=f"toggle_logic_{item_id}",
+                                     help="Edit this constant"):
+                            st.session_state[ledit_key] = not st.session_state[ledit_key]
+
+                        # Last 3 edits inline
+                        recent = load_changelog(item_id=item_id,
+                                                change_type="logic_edit", n=3)
+                        for e in recent:
+                            ts   = e.get("timestamp", "")[:16].replace("T", " ")
+                            src  = "✏️ UI" if e.get("source") == "manual_ui" else "💻 Code"
+                            st.caption(
+                                f"{ts} {src}: `{e.get('old_value','')}` → "
+                                f"`{e.get('new_value','')}` — "
+                                f"_{e.get('rationale','')[:80]}_"
+                            )
+
+                        if st.session_state[ledit_key]:
+                            if isinstance(current_val, dict):
+                                st.info(
+                                    "Map-type constants require editing `config/logic_config.json` "
+                                    "directly — inline editing of nested maps is not supported here."
+                                )
+                                st.json(current_val)
+                            else:
+                                with st.form(key=f"logic_form_{item_id}"):
+                                    if isinstance(current_val, float):
+                                        new_val = st.number_input(
+                                            "New value",
+                                            value=float(current_val),
+                                            format="%.4f",
+                                            step=0.01,
+                                        )
+                                    elif isinstance(current_val, int):
+                                        new_val = st.number_input(
+                                            "New value",
+                                            value=int(current_val),
+                                            step=1,
+                                        )
+                                    else:
+                                        new_val = st.text_input(
+                                            "New value", value=str(current_val)
+                                        )
+
+                                    logic_rationale = st.text_area(
+                                        "🧠 Why are you changing this?",
+                                        height=80,
+                                        placeholder=(
+                                            "e.g. 'Lowering activation threshold — "
+                                            "too few activations at 0.35 with sparse scalar data.'"
+                                        ),
+                                    )
+                                    lc1, lc2 = st.columns([2, 1])
+                                    with lc1:
+                                        lsave = st.form_submit_button(
+                                            "💾 Save", type="primary"
+                                        )
+                                    with lc2:
+                                        lcancel = st.form_submit_button("✕ Cancel")
+
+                                    if lsave:
+                                        if not logic_rationale.strip():
+                                            st.error("Rationale is required.")
+                                        else:
+                                            try:
+                                                update_constant(
+                                                    cat_key, const_key, new_val,
+                                                    rationale=logic_rationale,
+                                                    editor="manual_ui",
+                                                )
+                                                st.success(f"✅ `{const_key}` updated.")
+                                                st.session_state[ledit_key] = False
+                                                st.rerun()
+                                            except Exception as exc:
+                                                st.error(f"Save failed: {exc}")
+
+                                    if lcancel:
+                                        st.session_state[ledit_key] = False
+                                        st.rerun()
+
+                st.divider()
+
+    # ── Tab: Change History ───────────────────────────────────────────────────
+    with tab_history:
+        st.subheader("Editorial Change History")
+        st.caption("Every prompt and logic change, whether made via this UI or detected as a code edit.")
+
+        hf1, hf2, hf3 = st.columns(3)
+        with hf1:
+            hist_type = st.selectbox(
+                "Change type",
+                ["All", "prompt_edit", "logic_edit"],
+                key="hist_type",
+            )
+        with hf2:
+            hist_source = st.selectbox(
+                "Source",
+                ["All", "manual_ui", "code_edit"],
+                key="hist_source",
+            )
+        with hf3:
+            hist_n = st.number_input(
+                "Show last N entries", min_value=10, max_value=500,
+                value=50, step=10, key="hist_n"
+            )
+
+        entries = load_changelog(
+            n=int(hist_n),
+            change_type=None if hist_type == "All" else hist_type,
+            source=None if hist_source == "All" else hist_source,
+        )
+
+        if not entries:
+            st.info("No editorial changes logged yet.")
+        else:
+            st.caption(f"{len(entries)} entries shown")
+            rows = []
+            for e in entries:
+                rows.append({
+                    "Time":      e.get("timestamp", "")[:19].replace("T", " "),
+                    "Type":      e.get("change_type", ""),
+                    "Item":      e.get("item_name", ""),
+                    "Field":     e.get("field", ""),
+                    "Old":       str(e.get("old_value", ""))[:60],
+                    "New":       str(e.get("new_value", ""))[:60],
+                    "Rationale": e.get("rationale", "")[:100],
+                    "Source":    e.get("source", ""),
+                })
+            import pandas as pd
+            st.dataframe(
+                pd.DataFrame(rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            from core.editorial import CHANGELOG_PATH as _cl_path
+            if os.path.exists(_cl_path):
+                st.download_button(
+                    "📥 Download full changelog (JSONL)",
+                    data=open(_cl_path).read(),
+                    file_name="editorial_changelog.jsonl",
+                    mime="application/json",
+                )
+
+
+# ── Page: Agent ───────────────────────────────────────────────────────────────
+
+elif page == "🤖 Agent":
+    from core.agent import run_agent_turn
+
+    st.title("🤖 Disruption Scout Agent")
+    st.caption(
+        "Ask anything about hypotheses, companies, or the pipeline. "
+        "The agent can read and update prompts and logic constants."
+    )
+
+    # ── Context injection from other pages ────────────────────────────────────
+    agent_ctx = st.session_state.get("agent_context")
+    if agent_ctx:
+        st.info(f"📌 Context loaded: {agent_ctx['label']}", icon="📌")
+        if st.button("✕ Clear context", key="clear_agent_ctx"):
+            del st.session_state["agent_context"]
+            st.rerun()
+
+    # ── Chat history in session state ─────────────────────────────────────────
+    if "agent_messages" not in st.session_state:
+        st.session_state["agent_messages"] = []
+    if "agent_api_history" not in st.session_state:
+        st.session_state["agent_api_history"] = []
+
+    # ── Sidebar: quick starters + controls ────────────────────────────────────
+    with st.sidebar:
+        st.divider()
+        st.markdown("**Quick starters**")
+        starters = [
+            ("🔍 Summarise the pipeline", "Give me a high-level summary of how the disruption pipeline works — what each stage does and how they connect."),
+            ("📊 Weakest hypotheses", "Which hypotheses have the lowest conviction scores and why might they be weak? Fetch the bottom 5."),
+            ("⚙️ Review signal weights", "Fetch the current signal_strength formula weights and explain the trade-offs. Should any be adjusted?"),
+            ("🧪 Audit a prompt", "Read the hypothesis_generation prompt and tell me: is it well-structured? What could make it generate higher-quality hypotheses?"),
+            ("🔧 Tune activation threshold", "The activation threshold is currently 0.35. Is that too strict or too lenient given the current data? Fetch some examples to reason from."),
+        ]
+        for label, prompt in starters:
+            if st.button(label, key=f"starter_{label[:20]}", use_container_width=True):
+                st.session_state["agent_pending_input"] = prompt
+                st.rerun()
+
+        st.divider()
+        # Save conversation to Notebook
+        _agent_ctx = st.session_state.get("agent_context")
+        if st.session_state.get("agent_messages") and _agent_ctx:
+            if st.button("📓 Save conversation to Notebook", key="save_agent_conv",
+                         use_container_width=True, help="Save this conversation as a note"):
+                from core.notebook import create_note
+                _conv_lines = []
+                for _m in st.session_state["agent_messages"]:
+                    if _m["role"] == "user":
+                        _conv_lines.append(f"**You:** {_m['content']}")
+                    elif _m["role"] == "assistant":
+                        _conv_lines.append(f"**Agent:** {_m['content']}")
+                _conv_text = "\n\n".join(_conv_lines)
+                _hyp_id_from_ctx = _agent_ctx.get("label","").split(":")[0].replace("Hypothesis ","").strip()
+                try:
+                    create_note(
+                        _hyp_id_from_ctx,
+                        title=f"Agent conversation — {_agent_ctx['label'][:50]}",
+                        content=_conv_text,
+                        note_type="agent_convo",
+                        source="agent",
+                    )
+                    st.success("Saved to Notebook.")
+                except Exception as _e:
+                    st.error(f"Could not save: {_e}")
+
+        if st.button("🗑 Clear conversation", key="clear_agent", use_container_width=True):
+            st.session_state["agent_messages"] = []
+            st.session_state["agent_api_history"] = []
+            st.session_state.pop("agent_context", None)
+            st.rerun()
+
+        st.markdown("**Capabilities**")
+        st.caption(
+            "• Explain & analyse hypotheses\n"
+            "• Query the graph with Cypher\n"
+            "• Read and edit prompts\n"
+            "• Adjust logic constants\n"
+            "• Review editorial changelog"
+        )
+
+    # ── Render chat history ───────────────────────────────────────────────────
+    for msg in st.session_state["agent_messages"]:
+        role = msg["role"]
+        content = msg["content"]
+        if role == "user":
+            with st.chat_message("user"):
+                st.markdown(content)
+        elif role == "assistant":
+            with st.chat_message("assistant"):
+                st.markdown(content)
+        elif role == "tool_call":
+            with st.expander(f"🔧 Tool: `{content['tool']}`", expanded=False):
+                st.caption("Input")
+                st.json(content["input"])
+                st.caption("Result")
+                st.code(content["result"][:2000], language=None)
+
+    # ── Handle pending input from quick starters ──────────────────────────────
+    pending = st.session_state.pop("agent_pending_input", None)
+
+    # ── Chat input ────────────────────────────────────────────────────────────
+    user_input = st.chat_input("Ask about a hypothesis, prompt, or logic…")
+
+    # Use pending quick-starter if no manual input this turn
+    if pending and not user_input:
+        user_input = pending
+
+    if user_input:
+        # If there's a loaded context, prepend it to the first message
+        ctx = st.session_state.get("agent_context")
+        if ctx and not st.session_state["agent_api_history"]:
+            full_input = f"[Context: {ctx['label']}]\n\n{ctx['detail']}\n\n---\n\n{user_input}"
+        else:
+            full_input = user_input
+
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(user_input)
+        st.session_state["agent_messages"].append({"role": "user", "content": user_input})
+
+        # Append to API history
+        api_history = st.session_state["agent_api_history"] + [
+            {"role": "user", "content": full_input}
+        ]
+
+        # Run agent with live tool-call display
+        with st.chat_message("assistant"):
+            tool_placeholder = st.empty()
+            response_placeholder = st.empty()
+
+            tool_log = []
+
+            def on_tool_start(name, inp):
+                tool_log.append({"tool": name, "input": inp, "result": "…"})
+                tool_placeholder.info(f"🔧 Calling `{name}`…")
+
+            def on_tool_end(name, result):
+                if tool_log:
+                    tool_log[-1]["result"] = result
+                tool_placeholder.empty()
+                # Show each completed tool call as an expander
+                for tl in tool_log:
+                    with st.expander(f"🔧 Tool: `{tl['tool']}`", expanded=False):
+                        st.caption("Input")
+                        st.json(tl["input"])
+                        st.caption("Result")
+                        st.code(str(tl["result"])[:2000], language=None)
+                    # Save to display history
+                    st.session_state["agent_messages"].append({
+                        "role": "tool_call",
+                        "content": tl,
+                    })
+                tool_log.clear()
+
+            try:
+                response_placeholder.markdown("_Thinking…_")
+                final_text, new_history = run_agent_turn(
+                    api_history,
+                    on_tool_start=on_tool_start,
+                    on_tool_end=on_tool_end,
+                )
+                response_placeholder.markdown(final_text or "_Done._")
+                st.session_state["agent_api_history"] = new_history
+                st.session_state["agent_messages"].append(
+                    {"role": "assistant", "content": final_text or "_Done._"}
+                )
+            except Exception as exc:
+                response_placeholder.error(f"Agent error: {exc}")
+                import traceback
+                st.code(traceback.format_exc(), language=None)
+
+
+# ── Page: Notebook ────────────────────────────────────────────────────────────
+
+elif page == "📓 Notebook":
+    from core.notebook import (
+        get_all_notes, search_notes, get_related_notes,
+        create_note, update_note, delete_note,
+        NOTE_TYPE_ICONS, NOTE_TYPES,
+    )
+    from core.notebook import ensure_schema as _nb_ensure
+    _nb_ensure()
+
+    st.title("📓 Research Notebook")
+    st.caption(
+        "All notes across every hypothesis — including rejected ones. "
+        "Notes on the same transformation are cross-linked automatically."
+    )
+
+    # ── Filters + search ──────────────────────────────────────────────────────
+    nf1, nf2, nf3, nf4 = st.columns([3, 2, 2, 1])
+    with nf1:
+        nb_search = st.text_input("🔍 Search notes", placeholder="keyword, tag, hypothesis title…",
+                                  key="nb_search_global")
+    with nf2:
+        nb_type_opts = ["All types"] + [f"{NOTE_TYPE_ICONS[t]} {t}" for t in NOTE_TYPES]
+        nb_type_sel = st.selectbox("Type", nb_type_opts, key="nb_type_filter")
+    with nf3:
+        nb_src_sel = st.selectbox("Source", ["All", "👤 user", "🤖 agent"], key="nb_src_filter")
+    with nf4:
+        nb_limit = st.number_input("Limit", min_value=10, max_value=500,
+                                   value=100, step=10, key="nb_limit")
+
+    nb_type_val = None if nb_type_sel == "All types" else nb_type_sel.split(" ", 1)[1]
+    nb_src_val  = None if nb_src_sel == "All" else nb_src_sel.split(" ", 1)[1]
+
+    if nb_search.strip():
+        notes = search_notes(nb_search.strip(), limit=int(nb_limit))
+        if nb_type_val:
+            notes = [n for n in notes if n.get("note_type") == nb_type_val]
+        if nb_src_val:
+            notes = [n for n in notes if n.get("source") == nb_src_val]
+    else:
+        notes = get_all_notes(limit=int(nb_limit), note_type=nb_type_val, source=nb_src_val)
+
+    st.caption(f"{len(notes)} note(s)")
+
+    if not notes:
+        st.info("No notes yet. Open a hypothesis and click **📓 Research Notes** to add one.")
+    else:
+        # Group by hypothesis for cleaner display
+        _hyp_groups = {}
+        for n in notes:
+            key = (n.get("hyp_id",""), n.get("hyp_title",""), n.get("hyp_status",""))
+            _hyp_groups.setdefault(key, []).append(n)
+
+        STATUS_COLOR = {"Validated": "🟢", "Rejected": "🔴", "Hypothesis": "🟡",
+                        "Escalated": "⬆️", "Unknown": "⚪"}
+
+        for (hyp_id, hyp_title, hyp_status), group_notes in _hyp_groups.items():
+            sc = STATUS_COLOR.get(hyp_status, "⚪")
+            from_bm = group_notes[0].get("from_bm","") or ""
+            to_bm   = group_notes[0].get("to_bm","")   or ""
+            transition = f"{from_bm} → {to_bm}" if from_bm else hyp_id
+
+            with st.expander(
+                f"{sc} **{hyp_title[:60] or hyp_id}** — {transition}  ·  "
+                f"{len(group_notes)} note(s)  ·  *{hyp_status}*",
+                expanded=False,
+            ):
+                # Jump to hypothesis button
+                hj1, hj2 = st.columns([5, 1])
+                hj1.caption(f"`{hyp_id}`  ·  {transition}")
+                if hj2.button("View hyp →", key=f"nb_navhyp_{hyp_id}",
+                              help="Go to this hypothesis"):
+                    nav_to("🧠 Hypotheses", "hyp_search", hyp_title[:60] or hyp_id)
+
+                for _n in group_notes:
+                    _icon = NOTE_TYPE_ICONS.get(_n.get("note_type",""), "📄")
+                    _ts   = (_n.get("created_at") or "")[:16].replace("T"," ")
+                    _src  = "🤖" if _n.get("source") == "agent" else "👤"
+                    _nbed_key = f"nb_gled_{_n['note_id']}"
+                    if _nbed_key not in st.session_state:
+                        st.session_state[_nbed_key] = False
+
+                    with st.container(border=True):
+                        _gc1, _gc2 = st.columns([5, 1])
+                        _gc1.markdown(
+                            f"{_icon} {_src} **{_n.get('title','Untitled')}**  "
+                            f"<span style='color:#888;font-size:0.8rem'>{_ts}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        if _gc2.button("✏️", key=f"nb_gledbtn_{_n['note_id']}"):
+                            st.session_state[_nbed_key] = not st.session_state[_nbed_key]
+                        if _n.get("tags"):
+                            st.caption("🏷 " + "  ·  ".join(_n["tags"]))
+                        st.markdown(_n.get("content",""))
+
+                        if st.session_state[_nbed_key]:
+                            with st.form(key=f"nb_gledf_{_n['note_id']}"):
+                                _gt = st.text_input("Title", value=_n.get("title",""))
+                                _gc = st.text_area("Content", value=_n.get("content",""), height=160)
+                                _gg = st.text_input("Tags (comma-separated)",
+                                                    value=", ".join(_n.get("tags") or []))
+                                _gs, _gd = st.columns(2)
+                                if _gs.form_submit_button("💾 Save", type="primary"):
+                                    update_note(_n["note_id"], title=_gt, content=_gc,
+                                                tags=[t.strip() for t in _gg.split(",") if t.strip()])
+                                    st.session_state[_nbed_key] = False
+                                    st.rerun()
+                                if _gd.form_submit_button("🗑 Delete"):
+                                    delete_note(_n["note_id"])
+                                    st.rerun()
+
+        # ── Standalone note (not tied to a hypothesis) ────────────────────────
+        st.divider()
+        st.markdown("**➕ Add a standalone note**")
+        _sa_key = "nb_standalone_add"
+        if _sa_key not in st.session_state:
+            st.session_state[_sa_key] = False
+        if st.button("➕ New note", key="nb_sa_toggle"):
+            st.session_state[_sa_key] = not st.session_state[_sa_key]
+        if st.session_state[_sa_key]:
+            # Load hypothesis list for picker
+            _all_hyps = run_query("""
+                MATCH (h:DisruptionHypothesis)
+                RETURN h.hypothesis_id AS hid, h.title AS title, h.status AS status
+                ORDER BY h.created_at DESC
+            """) or []
+            _hyp_map = {f"{h['hid']} — {h.get('title','')[:50]} [{h.get('status','')}]": h["hid"]
+                        for h in _all_hyps}
+            with st.form(key="nb_sa_form"):
+                _sa_hyp = st.selectbox("Attach to hypothesis", list(_hyp_map.keys()),
+                                       key="nb_sa_hyp")
+                _sa_t   = st.text_input("Title", placeholder="Short title", key="nb_sa_title")
+                _sa_c   = st.text_area("Content", height=180, key="nb_sa_content")
+                _sa_n   = st.selectbox("Type",
+                                       [f"{NOTE_TYPE_ICONS[t]} {t}" for t in NOTE_TYPES],
+                                       key="nb_sa_type")
+                _sa_g   = st.text_input("Tags (comma-separated)", key="nb_sa_tags")
+                if st.form_submit_button("💾 Save note", type="primary"):
+                    if _sa_t.strip() and _sa_c.strip():
+                        _sa_ntype = _sa_n.split(" ", 1)[1] if " " in _sa_n else _sa_n
+                        create_note(
+                            _hyp_map[_sa_hyp], _sa_t.strip(), _sa_c.strip(),
+                            note_type=_sa_ntype, source="user",
+                            tags=[t.strip() for t in _sa_g.split(",") if t.strip()],
+                        )
+                        st.session_state[_sa_key] = False
+                        st.success("Note saved.")
+                        st.rerun()
+                    else:
+                        st.error("Title and content are required.")

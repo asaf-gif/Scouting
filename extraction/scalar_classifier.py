@@ -42,13 +42,21 @@ except ImportError:
         def decorator(fn): return fn
         return decorator
 
-IMPACT_SCORE = {
-    ("increases", "strong"):   2,
-    ("increases", "moderate"): 1,
-    ("neutral",   "weak"):     0,
-    ("decreases", "moderate"): -1,
-    ("decreases", "strong"):   -2,
-}
+try:
+    from core.editorial import get_constant as _get_constant
+    _raw_impact = _get_constant("impact_scoring", "IMPACT_SCORE", None)
+    if _raw_impact:
+        IMPACT_SCORE = {tuple(k.split("_", 1)): v for k, v in _raw_impact.items()}
+    else:
+        raise ValueError("missing")
+except Exception:
+    IMPACT_SCORE = {
+        ("increases", "strong"):   2,
+        ("increases", "moderate"): 1,
+        ("neutral",   "weak"):     0,
+        ("decreases", "moderate"): -1,
+        ("decreases", "strong"):   -2,
+    }
 
 
 def get_driver():

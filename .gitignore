@@ -5,10 +5,8 @@ __pycache__/
 .env
 .DS_Store
 
-# Operational logs (append-only, not code)
-data/error_log.jsonl
-data/bm_changelog.jsonl
-data/transition_changelog.jsonl
+# Operational logs — live in Google Drive (SHARED_DATA_PATH), not in git
+data/*.jsonl
 data/snapshots/
 
 # Cache files

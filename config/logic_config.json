@@ -1,0 +1,104 @@
+{
+  "_version": 1,
+  "_last_updated": "2026-04-05T00:00:00Z",
+  "_description": "All hardcoded thresholds and weights for the scouting pipeline. Edit via the Editorial UI to keep a full rationale changelog.",
+
+  "activation": {
+    "ACTIVATION_THRESHOLD": {
+      "value": 0.35,
+      "description": "Minimum composite score for a Technology→Vector ACTIVATES relationship to be written. Below this, the technology is considered insufficiently aligned with the transition.",
+      "formula": "raw_score * coverage_factor >= ACTIVATION_THRESHOLD",
+      "used_in": "extraction/vector_activator.py"
+    },
+    "COVERAGE_FACTOR_BASE": {
+      "value": 3,
+      "description": "Number of aligned scalars at which coverage_factor reaches 1.0. Penalises activations supported by only one or two scalar overlaps. Raising this makes activation harder unless many scalars agree.",
+      "formula": "coverage_factor = min(1.0, aligned_scalar_count / COVERAGE_FACTOR_BASE)",
+      "used_in": "extraction/vector_activator.py"
+    }
+  },
+
+  "signal_weights": {
+    "evidence_weight": {
+      "value": 0.40,
+      "description": "Share of the composite signal_strength score driven by real-world evidence. The largest weight because observed transitions are the strongest signal.",
+      "formula": "signal = evidence_score * W_ev + scalar_coverage * W_cov + scalar_magnitude * W_mag + conviction * W_con",
+      "used_in": "analysis/signal_aggregator.py"
+    },
+    "scalar_coverage_weight": {
+      "value": 0.30,
+      "description": "Share of signal_strength driven by how many of the 26 structural scalars have been classified for this transition. Broad coverage implies a well-understood transition.",
+      "formula": "signal = evidence_score * W_ev + scalar_coverage * W_cov + scalar_magnitude * W_mag + conviction * W_con",
+      "used_in": "analysis/signal_aggregator.py"
+    },
+    "scalar_magnitude_weight": {
+      "value": 0.20,
+      "description": "Share of signal_strength driven by the average absolute impact score of the classified scalars. High magnitude means the transition causes strong structural shifts.",
+      "formula": "signal = evidence_score * W_ev + scalar_coverage * W_cov + scalar_magnitude * W_mag + conviction * W_con",
+      "used_in": "analysis/signal_aggregator.py"
+    },
+    "conviction_weight": {
+      "value": 0.10,
+      "description": "Share of signal_strength driven by the highest hypothesis conviction score attached to this vector. Smallest weight — hypothesis confidence is downstream of evidence, not independent.",
+      "formula": "signal = evidence_score * W_ev + scalar_coverage * W_cov + scalar_magnitude * W_mag + conviction * W_con",
+      "used_in": "analysis/signal_aggregator.py"
+    },
+    "evidence_tanh_divisor": {
+      "value": 3.0,
+      "description": "Divisor D in tanh(evidence_count / D). Controls how quickly evidence saturates. At D=3: 1 piece → 0.31, 3 pieces → 0.76, 6 pieces → 0.96. Raise D to require more evidence before saturation.",
+      "formula": "evidence_score = tanh(evidence_count / D) * mean_confidence",
+      "used_in": "analysis/signal_aggregator.py"
+    },
+    "scalar_coverage_target": {
+      "value": 8.0,
+      "description": "Number of classified scalars at which scalar_coverage reaches 1.0. Set to 8 because we consider a transition 'well-characterised' once a third of the 26 scalars are classified.",
+      "formula": "scalar_coverage = min(classified_scalars / scalar_coverage_target, 1.0)",
+      "used_in": "analysis/signal_aggregator.py"
+    }
+  },
+
+  "duplicate_detection": {
+    "SIMILARITY_THRESHOLD": {
+      "value": 0.85,
+      "description": "Semantic similarity above which a new Business Model candidate is blocked as a duplicate. The enrichment LLM returns a similarity_score; if it meets this threshold the node is not created.",
+      "formula": "if similarity_score >= SIMILARITY_THRESHOLD: block creation",
+      "used_in": "input_layer/bm_enrichment.py"
+    },
+    "REVIEW_THRESHOLD": {
+      "value": 0.60,
+      "description": "Semantic similarity above which a new Business Model is allowed but flagged pending_human_review=true. Creates a HumanReviewItem in the queue so an analyst can decide.",
+      "formula": "if similarity_score >= REVIEW_THRESHOLD: flag for review",
+      "used_in": "input_layer/bm_enrichment.py"
+    }
+  },
+
+  "trends": {
+    "MIN_VECTORS_DEFAULT": {
+      "value": 2,
+      "description": "Minimum number of distinct TransformationVectors a scalar must appear in to qualify as a macro trend. Set to 2 so isolated activations do not create false trend signals.",
+      "formula": "count(distinct vectors with scalar) >= MIN_VECTORS_DEFAULT",
+      "used_in": "analysis/trend_detector.py"
+    },
+    "MIN_SIGNAL": {
+      "value": 0.0,
+      "description": "Minimum signal_strength a vector must have to be included in trend analysis. Currently 0.0 so all vectors are included regardless of data completeness. Raise once the graph is well-populated.",
+      "formula": "include vector if vector.signal_strength >= MIN_SIGNAL",
+      "used_in": "analysis/trend_detector.py"
+    }
+  },
+
+  "impact_scoring": {
+    "IMPACT_SCORE": {
+      "value": {
+        "increases_strong":   2,
+        "increases_moderate": 1,
+        "neutral_weak":       0,
+        "decreases_moderate": -1,
+        "decreases_strong":   -2
+      },
+      "description": "Integer score assigned to each (direction, strength) combination when a scalar is impacted by a transition or technology. Used in vector activation scoring and trend magnitude calculations. JSON keys use underscore-joined format; code converts to tuple keys at import time.",
+      "formula": "score = IMPACT_SCORE[direction + '_' + strength]",
+      "used_in": "extraction/scalar_classifier.py, extraction/tech_scalar_classifier.py"
+    }
+  }
+}

@@ -32,8 +32,13 @@ from rich.panel import Panel
 load_dotenv(override=True)
 console = Console(width=200)
 
-MIN_VECTORS_DEFAULT = 2   # lowered from 3 since we're early in data collection
-MIN_SIGNAL = 0.0          # include all vectors (even those with 0 signal) during bootstrap
+try:
+    from core.editorial import get_constant as _gc
+    MIN_VECTORS_DEFAULT = _gc("trends", "MIN_VECTORS_DEFAULT", 2)
+    MIN_SIGNAL          = _gc("trends", "MIN_SIGNAL", 0.0)
+except Exception:
+    MIN_VECTORS_DEFAULT = 2   # lowered from 3 since we're early in data collection
+    MIN_SIGNAL = 0.0          # include all vectors (even those with 0 signal) during bootstrap
 
 
 def get_driver():

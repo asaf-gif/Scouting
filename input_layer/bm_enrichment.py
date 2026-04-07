@@ -30,8 +30,13 @@ from rich.panel import Panel
 load_dotenv(override=True)
 console = Console()
 
-SIMILARITY_THRESHOLD = 0.85   # above this → treat as duplicate, block creation
-REVIEW_THRESHOLD     = 0.60   # above this → flag for human review even if not blocked
+try:
+    from core.editorial import get_constant as _gc
+    SIMILARITY_THRESHOLD = _gc("duplicate_detection", "SIMILARITY_THRESHOLD", 0.85)
+    REVIEW_THRESHOLD     = _gc("duplicate_detection", "REVIEW_THRESHOLD", 0.60)
+except Exception:
+    SIMILARITY_THRESHOLD = 0.85   # above this → treat as duplicate, block creation
+    REVIEW_THRESHOLD     = 0.60   # above this → flag for human review even if not blocked
 
 
 def get_driver():

@@ -37,6 +37,18 @@ from rich.console import Console
 from rich.table import Table
 from rich.progress import track
 
+try:
+    from core.editorial import get_constant as _gc
+    _W_EV   = _gc("signal_weights", "evidence_weight", 0.40)
+    _W_COV  = _gc("signal_weights", "scalar_coverage_weight", 0.30)
+    _W_MAG  = _gc("signal_weights", "scalar_magnitude_weight", 0.20)
+    _W_CON  = _gc("signal_weights", "conviction_weight", 0.10)
+    _TANH_D = _gc("signal_weights", "evidence_tanh_divisor", 3.0)
+    _SC_TGT = _gc("signal_weights", "scalar_coverage_target", 8.0)
+except Exception:
+    _W_EV, _W_COV, _W_MAG, _W_CON = 0.40, 0.30, 0.20, 0.10
+    _TANH_D, _SC_TGT = 3.0, 8.0
+
 load_dotenv(override=True)
 console = Console(width=200)
 
@@ -88,11 +100,11 @@ def compute_signal_strength(row: dict) -> dict:
     ev_count = row["evidence_count"]
     ev_confs = [c for c in row["evidence_confs"] if c is not None]
     mean_conf = sum(ev_confs) / len(ev_confs) if ev_confs else 0.0
-    evidence_score = math.tanh(ev_count / 3.0) * mean_conf  # 0→0, 3→0.76, 6→0.95
+    evidence_score = math.tanh(ev_count / _TANH_D) * mean_conf  # 0→0, 3→0.76, 6→0.95
 
-    # Scalar coverage component (target: ≥8 classified scalars)
+    # Scalar coverage component (target: ≥_SC_TGT classified scalars)
     scalar_count = row["scalar_count"]
-    scalar_coverage = min(scalar_count / 8.0, 1.0)
+    scalar_coverage = min(scalar_count / _SC_TGT, 1.0)
 
     # Scalar magnitude component (mean absolute impact score / 2)
     scores = [s for s in row["impact_scores"] if s is not None]
@@ -105,12 +117,12 @@ def compute_signal_strength(row: dict) -> dict:
     # Hypothesis conviction component
     conviction = float(row["best_conviction"] or 0.0)
 
-    # Weighted composite
+    # Weighted composite (weights from config/logic_config.json)
     signal_strength = (
-        evidence_score  * 0.40 +
-        scalar_coverage * 0.30 +
-        scalar_magnitude * 0.20 +
-        conviction      * 0.10
+        evidence_score   * _W_EV  +
+        scalar_coverage  * _W_COV +
+        scalar_magnitude * _W_MAG +
+        conviction       * _W_CON
     )
 
     # Best tech score (normalised — max observed is ~15)

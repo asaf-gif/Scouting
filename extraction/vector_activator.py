@@ -50,7 +50,11 @@ except ImportError:
         def decorator(fn): return fn
         return decorator
 
-ACTIVATION_THRESHOLD = 0.35
+try:
+    from core.editorial import get_constant as _get_constant
+    ACTIVATION_THRESHOLD = _get_constant("activation", "ACTIVATION_THRESHOLD", 0.35)
+except Exception:
+    ACTIVATION_THRESHOLD = 0.35
 
 
 def get_driver():
@@ -153,7 +157,12 @@ def compute_activation_score(
 
     # Penalise small overlap: require at least 2 aligned scalars for a strong signal
     overlap_count = len([d for d in overlap_details if d["alignment"] == "aligned"])
-    coverage_factor = min(1.0, overlap_count / 3)  # reaches 1.0 at 3+ aligned scalars
+    try:
+        from core.editorial import get_constant as _gc
+        _cov_base = _gc("activation", "COVERAGE_FACTOR_BASE", 3)
+    except Exception:
+        _cov_base = 3
+    coverage_factor = min(1.0, overlap_count / _cov_base)  # reaches 1.0 at cov_base+ aligned scalars
 
     raw_score = aligned_weight / total
     activation_score = round(raw_score * coverage_factor, 3)
