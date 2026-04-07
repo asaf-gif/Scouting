@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+.env.team
 .DS_Store
 
 # Operational logs — live in Google Drive (SHARED_DATA_PATH), not in git
