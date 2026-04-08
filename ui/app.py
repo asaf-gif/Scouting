@@ -1595,6 +1595,203 @@ elif page == "🔬 Technologies":
 
             st.divider()
 
+            # ── Scalar Impact Fingerprint ─────────────────────────────────────
+            scalar_impacts = run_query("""
+                MATCH (t:Technology {tech_id: $tid})-[r:MOVES_SCALAR]->(s:Scalar)
+                RETURN s.scalar_id AS sid, s.name AS scalar_name,
+                       r.direction AS direction, r.strength AS strength,
+                       r.score AS score, r.rationale AS rationale,
+                       r.classified_by AS classified_by, r.classified_at AS classified_at
+                ORDER BY r.score DESC, s.name
+            """, tid=tid) or []
+
+            # Also get all scalars for the edit picker
+            _all_scalars_tech = run_query("""
+                MATCH (s:Scalar) RETURN s.scalar_id AS sid, s.name AS name ORDER BY s.name
+            """) or []
+            _existing_sids = {si["sid"] for si in scalar_impacts}
+
+            st.markdown(f"#### ⚡ Scalar Impact Fingerprint  ({len(scalar_impacts)} scalars)")
+
+            if scalar_impacts:
+                for _si_idx, si in enumerate(scalar_impacts):
+                    _dir = si.get("direction", "")
+                    _str = si.get("strength", "")
+                    _scr = si.get("score", 0) or 0
+                    _dir_icon = "📈" if _dir == "increases" else ("📉" if _dir == "decreases" else "➖")
+                    _str_badge = {"strong": "🔴", "moderate": "🟡", "weak": "⚪"}.get(_str, "⚪")
+
+                    with st.container(border=True):
+                        _sc1, _sc2, _sc3, _sc4 = st.columns([3, 1, 1, 0.5])
+                        with _sc1:
+                            st.markdown(f"**{si['scalar_name']}**")
+                            st.caption(f"`{si['sid']}`")
+                        with _sc2:
+                            st.markdown(f"{_dir_icon} {_dir}")
+                        with _sc3:
+                            st.markdown(f"{_str_badge} {_str}  (score: {_scr})")
+                        with _sc4:
+                            _si_edit_key = f"tsi_edit_{tid}_{si['sid']}"
+                            if _si_edit_key not in st.session_state:
+                                st.session_state[_si_edit_key] = False
+                            if st.button("✏️", key=f"tsi_editbtn_{tid}_{_si_idx}"):
+                                st.session_state[_si_edit_key] = not st.session_state[_si_edit_key]
+
+                        if si.get("rationale"):
+                            st.caption(f"_{si['rationale'][:300]}_")
+                        if si.get("classified_by"):
+                            _cls_at = (si.get("classified_at") or "")[:16].replace("T", " ")
+                            st.caption(f"Classified by: {si['classified_by']}  ·  {_cls_at}")
+
+                        # ── Edit form for this scalar impact ──
+                        if st.session_state.get(f"tsi_edit_{tid}_{si['sid']}"):
+                            with st.form(key=f"tsi_editform_{tid}_{si['sid']}"):
+                                _e1, _e2 = st.columns(2)
+                                _new_dir = _e1.selectbox(
+                                    "Direction",
+                                    ["increases", "decreases"],
+                                    index=0 if _dir == "increases" else 1,
+                                    key=f"tsi_dir_{tid}_{si['sid']}",
+                                )
+                                _new_str = _e2.selectbox(
+                                    "Strength",
+                                    ["strong", "moderate", "weak"],
+                                    index=["strong", "moderate", "weak"].index(_str) if _str in ["strong", "moderate", "weak"] else 1,
+                                    key=f"tsi_str_{tid}_{si['sid']}",
+                                )
+                                _new_rat = st.text_area(
+                                    "Rationale",
+                                    value=si.get("rationale") or "",
+                                    height=80,
+                                    key=f"tsi_rat_{tid}_{si['sid']}",
+                                )
+                                _edit_comment = st.text_area(
+                                    "Comment (why are you making this change?)",
+                                    height=60,
+                                    placeholder="e.g. 'Upgraded strength: new benchmark shows 3x improvement in network throughput'",
+                                    key=f"tsi_cmt_{tid}_{si['sid']}",
+                                )
+                                _sf1, _sf2 = st.columns(2)
+                                if _sf1.form_submit_button("💾 Save", type="primary"):
+                                    if not _edit_comment.strip():
+                                        st.error("Please enter a comment explaining the change.")
+                                    else:
+                                        _score_map = {
+                                            ("increases", "strong"): 2, ("increases", "moderate"): 1,
+                                            ("increases", "weak"): 0, ("decreases", "weak"): 0,
+                                            ("decreases", "moderate"): -1, ("decreases", "strong"): -2,
+                                        }
+                                        _new_score = _score_map.get((_new_dir, _new_str), 0)
+                                        _now = datetime.now(timezone.utc).isoformat()
+                                        run_query("""
+                                            MATCH (t:Technology {tech_id: $tid})-[r:MOVES_SCALAR]->(s:Scalar {scalar_id: $sid})
+                                            SET r.direction = $dir, r.strength = $str,
+                                                r.score = $score, r.rationale = $rat,
+                                                r.edited_at = $now, r.edited_by = 'manual_ui'
+                                        """, tid=tid, sid=si["sid"], dir=_new_dir,
+                                            str=_new_str, score=_new_score, rat=_new_rat.strip(), now=_now)
+                                        # Log change
+                                        tech_append({
+                                            "tech_id": tid, "timestamp": _now,
+                                            "change_type": "scalar_impact_edit",
+                                            "scalar_id": si["sid"],
+                                            "scalar_name": si["scalar_name"],
+                                            "old_direction": _dir, "new_direction": _new_dir,
+                                            "old_strength": _str, "new_strength": _new_str,
+                                            "old_score": _scr, "new_score": _new_score,
+                                            "rationale": _new_rat.strip(),
+                                            "comment": _edit_comment.strip(),
+                                            "editor": "manual_ui",
+                                        })
+                                        st.session_state[f"tsi_edit_{tid}_{si['sid']}"] = False
+                                        st.success("✅ Scalar impact updated.")
+                                        st.rerun()
+                                if _sf2.form_submit_button("🗑 Remove"):
+                                    _now = datetime.now(timezone.utc).isoformat()
+                                    run_query("""
+                                        MATCH (t:Technology {tech_id: $tid})-[r:MOVES_SCALAR]->(s:Scalar {scalar_id: $sid})
+                                        DELETE r
+                                    """, tid=tid, sid=si["sid"])
+                                    tech_append({
+                                        "tech_id": tid, "timestamp": _now,
+                                        "change_type": "scalar_impact_removed",
+                                        "scalar_id": si["sid"],
+                                        "scalar_name": si["scalar_name"],
+                                        "old_direction": _dir, "old_strength": _str,
+                                        "comment": "Removed scalar impact",
+                                        "editor": "manual_ui",
+                                    })
+                                    st.success("🗑 Scalar impact removed.")
+                                    st.rerun()
+            else:
+                st.info("No scalar impacts classified yet for this technology.")
+
+            # ── Add new scalar impact ──
+            _add_si_key = f"tsi_add_{tid}"
+            if _add_si_key not in st.session_state:
+                st.session_state[_add_si_key] = False
+            if st.button("➕ Add scalar impact", key=f"tsi_addbtn_{tid}"):
+                st.session_state[_add_si_key] = not st.session_state[_add_si_key]
+
+            if st.session_state[_add_si_key]:
+                # Only show scalars not already linked
+                _avail = [s for s in _all_scalars_tech if s["sid"] not in _existing_sids]
+                if not _avail:
+                    st.warning("All scalars are already linked to this technology.")
+                else:
+                    _avail_map = {f"{s['sid']} — {s['name'][:60]}": s["sid"] for s in _avail}
+                    with st.form(key=f"tsi_addform_{tid}"):
+                        _sel_sc = st.selectbox("Scalar", list(_avail_map.keys()), key=f"tsi_addsel_{tid}")
+                        _a1, _a2 = st.columns(2)
+                        _add_dir = _a1.selectbox("Direction", ["increases", "decreases"], key=f"tsi_adddir_{tid}")
+                        _add_str = _a2.selectbox("Strength", ["strong", "moderate", "weak"], index=1, key=f"tsi_addstr_{tid}")
+                        _add_rat = st.text_area("Rationale", height=80,
+                                                placeholder="How does this technology move this scalar?",
+                                                key=f"tsi_addrat_{tid}")
+                        _add_cmt = st.text_area("Comment", height=60,
+                                                placeholder="Why are you adding this?",
+                                                key=f"tsi_addcmt_{tid}")
+                        if st.form_submit_button("💾 Add scalar impact", type="primary"):
+                            if not _add_rat.strip() or not _add_cmt.strip():
+                                st.error("Rationale and comment are both required.")
+                            else:
+                                _score_map = {
+                                    ("increases", "strong"): 2, ("increases", "moderate"): 1,
+                                    ("increases", "weak"): 0, ("decreases", "weak"): 0,
+                                    ("decreases", "moderate"): -1, ("decreases", "strong"): -2,
+                                }
+                                _add_score = _score_map.get((_add_dir, _add_str), 0)
+                                _now = datetime.now(timezone.utc).isoformat()
+                                _add_sid = _avail_map[_sel_sc]
+                                run_query("""
+                                    MATCH (t:Technology {tech_id: $tid})
+                                    MATCH (s:Scalar {scalar_id: $sid})
+                                    MERGE (t)-[r:MOVES_SCALAR]->(s)
+                                    SET r.direction = $dir, r.strength = $str,
+                                        r.score = $score, r.rationale = $rat,
+                                        r.classified_by = 'manual_ui',
+                                        r.classified_at = $now,
+                                        r.edited_by = 'manual_ui',
+                                        r.edited_at = $now
+                                """, tid=tid, sid=_add_sid, dir=_add_dir,
+                                    str=_add_str, score=_add_score, rat=_add_rat.strip(), now=_now)
+                                tech_append({
+                                    "tech_id": tid, "timestamp": _now,
+                                    "change_type": "scalar_impact_added",
+                                    "scalar_id": _add_sid,
+                                    "scalar_name": _sel_sc.split(" — ", 1)[1] if " — " in _sel_sc else _add_sid,
+                                    "direction": _add_dir, "strength": _add_str,
+                                    "score": _add_score,
+                                    "rationale": _add_rat.strip(),
+                                    "comment": _add_cmt.strip(),
+                                    "editor": "manual_ui",
+                                })
+                                st.session_state[_add_si_key] = False
+                                st.success("✅ Scalar impact added.")
+                                st.rerun()
+
+            st.divider()
+
             # ── Linked transformations ─────────────────────────────────────────
             # Vectors with INFLUENCES rel
             linked_vecs = run_query("""
@@ -2335,7 +2532,7 @@ elif page == "📋 Input Review Queue":
                         ))
 
                     st.divider()
-                    a1, a2, a3, a4 = st.columns(4)
+                    a1, a2, a3, a4, a5 = st.columns(5)
                     if a1.button("✅ Validate", key=f"irq_hyp_val_{hid}"):
                         run_query("""
                             MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
@@ -2344,7 +2541,14 @@ elif page == "📋 Input Review Queue":
                                 h.reviewed_at = $now, h.reviewed_by = 'human_ui'
                         """, hid=hid, now=_now_irq)
                         st.rerun()
-                    if a2.button("❌ Reject", key=f"irq_hyp_rej_{hid}"):
+                    if a2.button("🧠 Thinking", key=f"irq_hyp_think_{hid}"):
+                        run_query("""
+                            MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
+                            SET h.status = 'Thinking',
+                                h.thinking_since = $now
+                        """, hid=hid, now=_now_irq)
+                        st.rerun()
+                    if a3.button("❌ Reject", key=f"irq_hyp_rej_{hid}"):
                         run_query("""
                             MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
                             SET h.status = 'Rejected',
@@ -2352,7 +2556,7 @@ elif page == "📋 Input Review Queue":
                                 h.reviewed_at = $now, h.reviewed_by = 'human_ui'
                         """, hid=hid, now=_now_irq)
                         st.rerun()
-                    if a3.button("⬆️ Escalate", key=f"irq_hyp_esc_{hid}"):
+                    if a4.button("⬆️ Escalate", key=f"irq_hyp_esc_{hid}"):
                         run_query("""
                             MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
                             SET h.status = 'Escalated',
@@ -2360,7 +2564,7 @@ elif page == "📋 Input Review Queue":
                                 h.reviewed_at = $now, h.reviewed_by = 'human_ui'
                         """, hid=hid, now=_now_irq)
                         st.rerun()
-                    if a4.button("🔬 More research", key=f"irq_hyp_res_{hid}"):
+                    if a5.button("🔬 More research", key=f"irq_hyp_res_{hid}"):
                         run_query("""
                             MATCH (h:DisruptionHypothesis {hypothesis_id: $hid})
                             SET h.status = 'Needs Research',
@@ -2683,7 +2887,7 @@ elif page == "🧠 Hypotheses":
         tech_filter_opts += list(tech_id_map.keys())
         selected_tech_name = st.selectbox("Technology", tech_filter_opts, label_visibility="collapsed")
     with fcol3:
-        status_filter = st.selectbox("Status", ["All", "Pending review", "Validated", "Rejected", "Escalated"],
+        status_filter = st.selectbox("Status", ["All", "Pending review", "Validated", "Thinking", "Rejected", "Escalated"],
                                      label_visibility="collapsed")
     with fcol4:
         sort_hyp = st.selectbox("Sort", ["conviction_score", "activation_score", "created_at"],
@@ -2761,7 +2965,7 @@ elif page == "🧠 Hypotheses":
         status    = h.get("status") or "Hypothesis"
 
         status_badge = {"Validated": "✅", "Rejected": "❌", "Escalated": "⬆️",
-                        "Hypothesis": "🔔"}.get(status, "●")
+                        "Thinking": "🧠", "Hypothesis": "🔔"}.get(status, "●")
 
         header = (
             f"{conv_icon} {status_badge}  **{h.get('from_name','?')} → {h.get('to_name','?')}**  "
@@ -2898,32 +3102,78 @@ elif page == "🧠 Hypotheses":
 
                 # ── companies in our database exposed to this hypothesis ──
                 _linked_cos = run_query("""
-                    MATCH (c:Company)-[r:EXPOSED_TO]->(h:DisruptionHypothesis {hypothesis_id: $hid})
-                    OPTIONAL MATCH (c)-[:OPERATES_AS {is_primary: true}]->(b:BusinessModel)
+                    MATCH (c:Company)-[:EXPOSED_TO]->(h:DisruptionHypothesis {hypothesis_id: $hid})
                     RETURN c.company_id AS cid, c.name AS name, c.ticker AS ticker,
-                           c.revenue_range AS rev, b.name AS bm,
-                           r.reason AS reason
-                    ORDER BY c.name
+                           c.gics_sector AS gics_sector,
+                           c.gics_industry_group AS gics_group,
+                           c.gics_industry AS gics_industry,
+                           c.fortune_rank AS rank
+                    ORDER BY c.fortune_rank ASC, c.name ASC
                 """, hid=hid) or []
 
                 if _linked_cos:
-                    st.markdown(f"**🏢 Companies in our database exposed ({len(_linked_cos)})**")
-                    # Display as compact grid of clickable badges
-                    _badge_rows = [_linked_cos[i:i+3] for i in range(0, len(_linked_cos), 3)]
-                    for _row in _badge_rows:
-                        _bcols = st.columns(3)
-                        for _ci, _co in enumerate(_row):
-                            _ticker = f" `{_co['ticker']}`" if _co.get("ticker") else ""
-                            _rev    = f"  ·  {_co['rev']}" if _co.get("rev") else ""
-                            with _bcols[_ci]:
+                    # Build 2-level hierarchy: sector → industry_group → companies
+                    _sector_tree = {}
+                    for _co in _linked_cos:
+                        _sec = _co.get("gics_sector") or "Other"
+                        _grp = _co.get("gics_group") or _co.get("gics_industry") or "Other"
+                        _sector_tree.setdefault(_sec, {}).setdefault(_grp, []).append(_co)
+
+                    # Sort sectors by total company count
+                    _sectors_sorted = sorted(
+                        _sector_tree.items(),
+                        key=lambda x: -sum(len(v) for v in x[1].values())
+                    )
+
+                    _n_sectors = len(_sector_tree)
+                    _n_groups  = sum(len(g) for g in _sector_tree.values())
+                    st.markdown(f"**🏢 {len(_linked_cos)} companies exposed  ·  {_n_sectors} sectors  ·  {_n_groups} industry groups**")
+
+                    for _si, (_sec_name, _grp_dict) in enumerate(_sectors_sorted):
+                        _sec_total = sum(len(v) for v in _grp_dict.values())
+                        _sec_key   = f"sec_open_{hid}_{_si}"
+                        if _sec_key not in st.session_state:
+                            st.session_state[_sec_key] = False
+                        _sec_arrow = "▼" if st.session_state[_sec_key] else "▶"
+                        if st.button(
+                            f"{_sec_arrow} **{_sec_name}** — {_sec_total} companies",
+                            key=f"sec_toggle_{hid}_{_si}",
+                            use_container_width=False,
+                        ):
+                            st.session_state[_sec_key] = not st.session_state[_sec_key]
+
+                        if st.session_state[_sec_key]:
+                            # Sort industry groups by count
+                            _grps_sorted = sorted(_grp_dict.items(), key=lambda x: -len(x[1]))
+                            for _gi, (_grp_name, _grp_cos) in enumerate(_grps_sorted):
+                                _grp_key = f"grp_open_{hid}_{_si}_{_gi}"
+                                if _grp_key not in st.session_state:
+                                    st.session_state[_grp_key] = False
+                                _grp_arrow = "▼" if st.session_state[_grp_key] else "▶"
                                 if st.button(
-                                    f"🏢 {_co['name']}{_ticker}",
-                                    key=f"navco_{hid}_{_co['cid']}",
-                                    help="View in Companies",
-                                    use_container_width=True,
+                                    f"  {_grp_arrow} {_grp_name} — {len(_grp_cos)}",
+                                    key=f"grp_toggle_{hid}_{_si}_{_gi}",
+                                    use_container_width=False,
                                 ):
-                                    nav_to("🏢 Companies", "co_search", _co["name"])
-                                st.caption(f"{(_co.get('bm') or '')[:35]}{_rev}")
+                                    st.session_state[_grp_key] = not st.session_state[_grp_key]
+
+                                if st.session_state[_grp_key]:
+                                    _badge_rows = [_grp_cos[i:i+3] for i in range(0, len(_grp_cos), 3)]
+                                    for _row in _badge_rows:
+                                        _bcols = st.columns(3)
+                                        for _ci, _co in enumerate(_row):
+                                            _ticker = f" `{_co['ticker']}`" if _co.get("ticker") else ""
+                                            _rank   = f"#{_co['rank']}" if _co.get("rank") else ""
+                                            with _bcols[_ci]:
+                                                if st.button(
+                                                    f"🏢 {_co['name']}{_ticker}",
+                                                    key=f"navco_{hid}_{_co['cid']}",
+                                                    help="View in Companies",
+                                                    use_container_width=True,
+                                                ):
+                                                    nav_to("🏢 Companies", "co_search", _co["name"])
+                                                if _rank:
+                                                    st.caption(_rank)
 
                 companies_str = ", ".join(h.get("companies") or []) or "—"
                 st.caption(f"**Mentioned in thesis:** {companies_str}")
@@ -3119,7 +3369,7 @@ elif page == "🧠 Hypotheses":
                                 _icon = NOTE_TYPE_ICONS.get(_rn.get("note_type",""), "📄")
                                 _stat = _rn.get("current_hyp_status") or "?"
                                 _stat_color = {"Validated": "🟢", "Rejected": "🔴",
-                                               "Hypothesis": "🟡"}.get(_stat, "⚪")
+                                               "Thinking": "🧠", "Hypothesis": "🟡"}.get(_stat, "⚪")
                                 with st.expander(
                                     f"{_icon} {_rn.get('title','Untitled')}  "
                                     f"— {_stat_color} {_rn.get('hyp_title','')[:50]}"
@@ -3149,6 +3399,16 @@ elif page == "🧠 Hypotheses":
                                 n.reviewed_by = 'human_ui'
                         """, id=hid, now=datetime.now(timezone.utc).isoformat())
                         st.success("✅ Validated")
+                        st.rerun()
+
+                    if st.button("🧠 Thinking", key=f"hyp_thinking_{hid}",
+                                 help="Keep exploring — not rejected, just needs more thought"):
+                        run_query("""
+                            MATCH (n:DisruptionHypothesis {hypothesis_id: $id})
+                            SET n.status = 'Thinking',
+                                n.thinking_since = $now
+                        """, id=hid, now=datetime.now(timezone.utc).isoformat())
+                        st.info("🧠 Marked as Thinking — keep exploring")
                         st.rerun()
 
                     if st.button("⬆️ More research", key=f"hyp_escalate_{hid}"):
@@ -3953,8 +4213,8 @@ elif page == "📓 Notebook":
             key = (n.get("hyp_id",""), n.get("hyp_title",""), n.get("hyp_status",""))
             _hyp_groups.setdefault(key, []).append(n)
 
-        STATUS_COLOR = {"Validated": "🟢", "Rejected": "🔴", "Hypothesis": "🟡",
-                        "Escalated": "⬆️", "Unknown": "⚪"}
+        STATUS_COLOR = {"Validated": "🟢", "Rejected": "🔴", "Thinking": "🧠",
+                        "Hypothesis": "🟡", "Escalated": "⬆️", "Unknown": "⚪"}
 
         for (hyp_id, hyp_title, hyp_status), group_notes in _hyp_groups.items():
             sc = STATUS_COLOR.get(hyp_status, "⚪")
@@ -4022,12 +4282,19 @@ elif page == "📓 Notebook":
         if st.session_state[_sa_key]:
             # Load hypothesis list for picker
             _all_hyps = run_query("""
-                MATCH (h:DisruptionHypothesis)
-                RETURN h.hypothesis_id AS hid, h.title AS title, h.status AS status
+                MATCH (h:DisruptionHypothesis)-[:TRIGGERED_BY]->(t:Technology)
+                OPTIONAL MATCH (f:BusinessModel {bim_id: h.from_bim_id})
+                OPTIONAL MATCH (tb:BusinessModel {bim_id: h.to_bim_id})
+                RETURN h.hypothesis_id AS hid, h.title AS title, h.status AS status,
+                       t.name AS tech_name, f.name AS from_bm, tb.name AS to_bm
                 ORDER BY h.created_at DESC
             """) or []
-            _hyp_map = {f"{h['hid']} — {h.get('title','')[:50]} [{h.get('status','')}]": h["hid"]
-                        for h in _all_hyps}
+            def _hyp_label(h):
+                tech = (h.get("tech_name") or "").split(" — ")[0].split(" (")[0]
+                f_bm = h.get("from_bm") or "?"
+                t_bm = h.get("to_bm") or "?"
+                return f"{tech}: {f_bm} → {t_bm}"
+            _hyp_map = {_hyp_label(h): h["hid"] for h in _all_hyps}
             with st.form(key="nb_sa_form"):
                 _sa_hyp = st.selectbox("Attach to hypothesis", list(_hyp_map.keys()),
                                        key="nb_sa_hyp")
