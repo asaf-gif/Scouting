@@ -57,30 +57,71 @@ You can:
   • Identify weaknesses or gaps in a hypothesis and propose improvements
   • Read the prompts used by each pipeline stage and reason about their design
   • Propose and apply changes to prompts or logic constants, always logging your rationale
+  • Write new nodes and relationships to the graph (BMs, scalars, vectors, hypotheses,
+    framework links, gaps) — always with a rationale, always logged
 
 SYSTEM ARCHITECTURE
 The pipeline flows: Technology → (tech_scalar_classifier) → MOVES_SCALAR
 → (vector_activator, threshold=0.35) → ACTIVATES TransformationVector
 → (hypothesis_generator) → DisruptionHypothesis
 
-Key node types:
-  BusinessModel (bim_id)       — a way companies make money
-  TransformationVector (vid)   — a real-world transition between two BMs
-  Scalar (scalar_id)           — a structural condition that drives transitions
-  Technology (tech_id)         — a technology that moves scalars
-  DisruptionHypothesis (hyp_id)— a prediction that a technology disrupts a transition
-  Company (company_id)         — a company classified against BMs
-  Evidence (evidence_id)       — a real-world data point supporting a vector
+NODE TYPES (full schema)
+  BusinessModel (bim_id, name, description)
+    — a way companies make money. IDs follow BIM_001…BIM_041+
+  TransformationVector (vid, name, description, signal_strength)
+    — a real-world transition between two BMs
+  Scalar (scalar_id, name, description)
+    — a structural condition that drives BM transitions
+  Technology (tech_id, name, description, maturity)
+    — a technology that moves scalars
+  DisruptionHypothesis (hypothesis_id, title, thesis, status, conviction_score)
+    — a prediction that a technology disrupts a transition
+  Company (company_id, name, fortune_rank, gics_sector, gics_industry_group)
+    — a company classified against BMs
+  Evidence (evidence_id, text, source)
+    — a real-world data point supporting a vector
+  InvestmentFramework (framework_id, name, summary, full_text, version, last_updated)
+    — a first-principles investment thesis. IDs: FW_001…FW_004+
+  FrameworkConcept (concept_id, name, definition, framework_id)
+    — a key concept within an InvestmentFramework
+  HypothesisGap (gap_id, name, description, status, from_bm_implied, to_bm_implied)
+    — a disruption implied by a framework but not yet built as a hypothesis
 
 KEY RELATIONSHIPS
-(Tech)-[:MOVES_SCALAR]->(Scalar)
-(Tech)-[:ACTIVATES]->(Vector) with activation_score
-(Vector)-[:IMPACTS]->(Scalar)
-(Vector)-[:FROM_BIM]->(BM) and [:TO_BIM]->(BM)
-(Hypothesis)-[:GENERATED_FROM]->(Vector)
-(Hypothesis)-[:TRIGGERED_BY]->(Tech)
-(Company)-[:EXPOSED_TO]->(Hypothesis)
-(Company)-[:OPERATES_AS]->(BM)
+  (Tech)-[:MOVES_SCALAR]->(Scalar)           props: direction, strength, score, rationale
+  (Tech)-[:ACTIVATES]->(Vector)              props: activation_score
+  (Vector)-[:IMPACTS]->(Scalar)
+  (Vector)-[:FROM_BIM]->(BM)
+  (Vector)-[:TO_BIM]->(BM)
+  (Hypothesis)-[:GENERATED_FROM]->(Vector)
+  (Hypothesis)-[:TRIGGERED_BY]->(Tech)
+  (Hypothesis)-[:TARGETS]->(BM)             — the disrupted BM
+  (Hypothesis)-[:PROPOSES]->(BM)            — the new BM
+  (Hypothesis)-[:GROUNDED_IN]->(InvestmentFramework)
+  (Company)-[:EXPOSED_TO]->(Hypothesis)
+  (Company)-[:OPERATES_AS]->(BM)
+  (InvestmentFramework)-[:HAS_CONCEPT]->(FrameworkConcept)
+  (HypothesisGap)-[:IMPLIED_BY]->(InvestmentFramework)
+
+WRITE TOOL GUIDELINES
+Use write_graph to:
+  • Create new BusinessModel nodes (use next available BIM_0XX id — check first)
+  • Create new Scalar nodes (use next available SCL_XXX id — check first)
+  • Create new Technology nodes (use next available TECH_XXX id — check first)
+  • Link technologies to scalars (MOVES_SCALAR)
+  • Create TransformationVectors and link to BMs
+  • Create or update DisruptionHypotheses
+  • Link hypotheses to frameworks (GROUNDED_IN)
+  • Update HypothesisGap status
+  • Add FrameworkConcepts to frameworks
+  • Update any node property (e.g. h.status, fw.summary)
+
+Safety rules for write_graph:
+  • Never DROP databases, indexes, or constraints
+  • Never delete Company nodes or EXPOSED_TO relationships in bulk without explicit user confirmation
+  • Always use MERGE (not CREATE) when creating BM/Scalar/Tech nodes to avoid duplicates
+  • Always provide a rationale — it is logged to the changelog
+  • Before creating a new BIM/SCL/TECH ID, query_graph to find the highest existing ID first
 
 PROMPTS USED (all in /prompts/*.txt):
   hypothesis_generation       — synthesises DisruptionHypothesis from tech + vector + scalar context
@@ -93,22 +134,18 @@ PROMPTS USED (all in /prompts/*.txt):
   bm_scanner                  — scans internet for novel BM patterns
 
 LOGIC CONSTANTS (all editable via update_logic_constant):
-  activation.ACTIVATION_THRESHOLD        = 0.35  (min score to write ACTIVATES rel)
-  activation.COVERAGE_FACTOR_BASE        = 3     (scalars needed for full coverage)
+  activation.ACTIVATION_THRESHOLD        = 0.35
+  activation.COVERAGE_FACTOR_BASE        = 3
   signal_weights.evidence_weight         = 0.40
   signal_weights.scalar_coverage_weight  = 0.30
   signal_weights.scalar_magnitude_weight = 0.20
   signal_weights.conviction_weight       = 0.10
-  signal_weights.evidence_tanh_divisor   = 3.0
-  signal_weights.scalar_coverage_target  = 8.0
   duplicate_detection.SIMILARITY_THRESHOLD = 0.85
   duplicate_detection.REVIEW_THRESHOLD     = 0.60
-  trends.MIN_VECTORS_DEFAULT             = 2
-  trends.MIN_SIGNAL                      = 0.0
 
 STYLE
   • Be concise but precise. Use bullet points when listing multiple items.
-  • When making changes, always explain what you changed and why.
+  • When writing to the graph, confirm what was created/updated before finishing.
   • Ask clarifying questions before making destructive changes.
   • Show your reasoning when analysing a hypothesis.
   • If you spot a flaw in a prompt or threshold, propose a fix with justification.
@@ -175,6 +212,40 @@ TOOLS = [
                 },
             },
             "required": ["cypher"],
+        },
+    },
+    {
+        "name": "write_graph",
+        "description": (
+            "Run a WRITE Cypher query against the Neo4j graph. "
+            "Use this to create or update nodes and relationships — new BMs, scalars, "
+            "technologies, vectors, hypotheses, framework links, gap nodes, or any "
+            "property update. All writes are logged to the editorial changelog. "
+            "Always use MERGE (not CREATE) for entity nodes to avoid duplicates. "
+            "Never DROP databases or constraints. "
+            "A rationale is required."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cypher": {
+                    "type": "string",
+                    "description": "A Cypher write statement (MERGE, CREATE, SET, DELETE, REMOVE)",
+                },
+                "params": {
+                    "type": "object",
+                    "description": "Optional query parameters as a JSON object",
+                },
+                "rationale": {
+                    "type": "string",
+                    "description": "Why this change is being made — stored in the changelog",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Short human-readable summary of what this write does, e.g. 'Create BIM_042 Human-as-API'",
+                },
+            },
+            "required": ["cypher", "rationale", "description"],
         },
     },
     {
@@ -301,6 +372,43 @@ def execute_tool(name: str, inputs: dict) -> str:
             if not rows:
                 return "Query returned no results."
             return json.dumps(rows[:50], default=str, indent=2)
+
+        elif name == "write_graph":
+            cypher     = inputs["cypher"]
+            rationale  = inputs["rationale"]
+            description = inputs.get("description", "graph write")
+            params     = inputs.get("params") or {}
+
+            # Hard block genuinely destructive DDL
+            blocked = ["DROP DATABASE", "DROP CONSTRAINT", "DROP INDEX"]
+            if any(kw in cypher.upper() for kw in blocked):
+                return "ERROR: Destructive DDL (DROP DATABASE/CONSTRAINT/INDEX) is not permitted."
+
+            # Execute
+            rows = _run_query(cypher, **params)
+            row_count = len(rows) if rows else 0
+
+            # Log to editorial changelog
+            try:
+                from core.editorial import append_changelog
+                append_changelog({
+                    "change_type": "graph_write",
+                    "item_name":   description,
+                    "field":       "cypher",
+                    "old_value":   None,
+                    "new_value":   cypher[:300],
+                    "rationale":   rationale,
+                    "source":      "agent",
+                })
+            except Exception:
+                pass  # Don't fail the write if logging fails
+
+            summary = f"✅ Write executed: {description}\n"
+            summary += f"   Rows returned: {row_count}\n"
+            if rows:
+                summary += "   Result preview:\n"
+                summary += json.dumps(rows[:10], default=str, indent=2)
+            return summary
 
         elif name == "read_prompt":
             from core.editorial import read_prompt

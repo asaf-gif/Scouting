@@ -251,6 +251,11 @@ def _append_changelog(fields: dict) -> None:
         f.write(json.dumps(entry) + "\n")
 
 
+def append_changelog(fields: dict) -> None:
+    """Public: append a custom entry to the editorial changelog (e.g. from agent graph writes)."""
+    _append_changelog(fields)
+
+
 def load_changelog(n: int = None, change_type: str = None,
                    source: str = None, item_id: str = None) -> list:
     """
