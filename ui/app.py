@@ -51,6 +51,7 @@ _NAV_PAGES = [
     "⚡ Scalars", "🔬 Technologies", "🏢 Companies", "🧠 Hypotheses",
     "📋 Input Review Queue", "📊 Graph Overview", "🔄 Pipeline Monitor",
     "📝 Editorial", "🤖 Agent", "📓 Notebook",
+    "🧭 Frameworks",
 ]
 
 # Apply any pending navigation BEFORE the radio widget is instantiated.
@@ -4317,3 +4318,151 @@ elif page == "📓 Notebook":
                         st.rerun()
                     else:
                         st.error("Title and content are required.")
+
+
+# ── Page: Frameworks ──────────────────────────────────────────────────────────
+
+elif page == "🧭 Frameworks":
+    st.title("🧭 Investment Frameworks")
+    st.caption(
+        "First-principles frameworks that ground our disruption hypotheses. "
+        "Each framework is a living document — update it here as new insights emerge."
+    )
+
+    # ── Load all frameworks ───────────────────────────────────────────────────
+    _fws = run_query("""
+        MATCH (fw:InvestmentFramework)
+        OPTIONAL MATCH (fw)-[:HAS_CONCEPT]->(c:FrameworkConcept)
+        WITH fw, collect(c {.concept_id, .name, .definition}) as concepts
+        RETURN fw.framework_id as fid, fw.name as name, fw.summary as summary,
+               fw.full_text as full_text, fw.version as version,
+               fw.last_updated as last_updated, concepts
+        ORDER BY fw.framework_id
+    """)
+
+    # ── Load hypothesis gap nodes ─────────────────────────────────────────────
+    _gaps = run_query("""
+        MATCH (g:HypothesisGap)-[:IMPLIED_BY]->(fw:InvestmentFramework)
+        RETURN g.gap_id as gid, g.name as name, g.description as description,
+               g.status as status, g.from_bm_implied as from_bm,
+               g.to_bm_implied as to_bm,
+               collect(fw.framework_id) as framework_ids,
+               collect(fw.name) as framework_names
+        ORDER BY g.gap_id
+    """)
+
+    # ── Framework selector ────────────────────────────────────────────────────
+    _fw_names = [fw["name"] for fw in _fws]
+    _fw_sel   = st.radio("Framework", _fw_names, horizontal=True, key="fw_sel")
+    _fw       = next(f for f in _fws if f["name"] == _fw_sel)
+
+    st.divider()
+
+    # ── Framework card ────────────────────────────────────────────────────────
+    _fw_col1, _fw_col2 = st.columns([2, 1])
+
+    with _fw_col1:
+        _edit_key = f"fw_editing_{_fw['fid']}"
+        if st.session_state.get(_edit_key):
+            st.subheader(f"✏️ Editing: {_fw['name']}")
+            with st.form(key=f"fw_edit_form_{_fw['fid']}"):
+                _new_summary = st.text_area(
+                    "Summary", value=_fw["summary"] or "", height=100,
+                    key=f"fw_sum_{_fw['fid']}"
+                )
+                _new_text = st.text_area(
+                    "Full text", value=_fw["full_text"] or "", height=400,
+                    key=f"fw_txt_{_fw['fid']}"
+                )
+                _save, _cancel = st.columns(2)
+                if _save.form_submit_button("💾 Save", type="primary"):
+                    _new_ver = (_fw.get("version") or 1) + 1
+                    run_query("""
+                        MATCH (fw:InvestmentFramework {framework_id: $fid})
+                        SET fw.summary = $summary,
+                            fw.full_text = $text,
+                            fw.version = $ver,
+                            fw.last_updated = $now
+                    """, fid=_fw["fid"], summary=_new_summary.strip(),
+                       text=_new_text.strip(), ver=_new_ver,
+                       now=datetime.now(timezone.utc).isoformat())
+                    st.session_state[_edit_key] = False
+                    st.success("Framework updated.")
+                    st.rerun()
+                if _cancel.form_submit_button("Cancel"):
+                    st.session_state[_edit_key] = False
+                    st.rerun()
+        else:
+            _hcol, _bcol = st.columns([5, 1])
+            _hcol.subheader(_fw["name"])
+            if _bcol.button("✏️ Edit", key=f"fw_edit_btn_{_fw['fid']}"):
+                st.session_state[_edit_key] = True
+                st.rerun()
+            st.markdown(f"*{_fw['summary']}*")
+            st.caption(f"v{_fw.get('version', 1)} · last updated {(_fw.get('last_updated') or '')[:10]}")
+            st.divider()
+            st.markdown(_fw["full_text"] or "")
+
+    with _fw_col2:
+        # Key concepts
+        st.markdown("**Key concepts**")
+        for _c in sorted(_fw.get("concepts") or [], key=lambda x: x.get("concept_id", "")):
+            with st.expander(f"**{_c['name']}**"):
+                st.caption(_c.get("definition", ""))
+
+        st.divider()
+
+        # Hypotheses grounded in this framework
+        _grounded = run_query("""
+            MATCH (h:DisruptionHypothesis)-[:GROUNDED_IN]->(fw:InvestmentFramework {framework_id: $fid})
+            MATCH (h)-[:TARGETS]->(fb:BusinessModel), (h)-[:PROPOSES]->(tb:BusinessModel)
+            RETURN h.hypothesis_id as hid, h.title as title, h.status as status,
+                   fb.name as from_bm, tb.name as to_bm
+            ORDER BY h.hypothesis_id
+        """, fid=_fw["fid"])
+
+        st.markdown(f"**{len(_grounded)} hypotheses grounded here**")
+        _status_icons = {
+            "Validated": "✅", "Rejected": "❌", "Escalated": "⬆️",
+            "Thinking": "🧠", "Hypothesis": "🔔", "Needs Research": "🔍",
+        }
+        for _h in _grounded:
+            _icon = _status_icons.get(_h.get("status"), "●")
+            with st.expander(f"{_icon} {(_h.get('from_bm') or '?')[:28]} → {(_h.get('to_bm') or '?')[:28]}"):
+                st.caption(_h.get("title", ""))
+                if st.button("Open hypothesis →", key=f"fw_hyp_nav_{_h['hid']}_{_fw['fid']}"):
+                    nav_to("🧠 Hypotheses", "hyp_filter_id", _h["hid"])
+
+    st.divider()
+
+    # ── Hypothesis Gaps ───────────────────────────────────────────────────────
+    _fw_gaps = [g for g in _gaps if _fw["fid"] in (g.get("framework_ids") or [])]
+    if _fw_gaps:
+        st.subheader(f"🕳️ Hypothesis Gaps implied by this framework")
+        st.caption("Disruptions the framework predicts but that don't yet have hypotheses in the system.")
+
+        for _g in _fw_gaps:
+            _gcol1, _gcol2, _gcol3 = st.columns([3, 1, 1])
+            _gcol1.markdown(f"**{_g['name']}**")
+            _gcol1.caption(_g.get("description", ""))
+            _gcol2.caption(f"From: {_g.get('from_bm') or '—'}")
+            _gcol2.caption(f"To: {_g.get('to_bm') or '—'}")
+            _status_color = {"open": "🟡", "in_progress": "🔵", "closed": "🟢"}.get(
+                _g.get("status", "open"), "🟡"
+            )
+            _gcol3.markdown(f"{_status_color} {(_g.get('status') or 'open').replace('_', ' ').title()}")
+
+            # Allow marking a gap as in_progress or closed
+            _gap_status_key = f"gap_status_{_g['gid']}"
+            _new_gap_status = _gcol3.selectbox(
+                "Update status", ["open", "in_progress", "closed"],
+                index=["open", "in_progress", "closed"].index(_g.get("status") or "open"),
+                key=_gap_status_key, label_visibility="collapsed"
+            )
+            if _new_gap_status != (_g.get("status") or "open"):
+                run_query("""
+                    MATCH (g:HypothesisGap {gap_id: $gid})
+                    SET g.status = $status
+                """, gid=_g["gid"], status=_new_gap_status)
+                st.rerun()
+            st.divider()
